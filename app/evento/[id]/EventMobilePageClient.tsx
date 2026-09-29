@@ -293,6 +293,22 @@ export default function EventMobilePageClient({
     }
   };
 
+  const handleShareWhatsApp = () => {
+    if (typeof window === 'undefined') return;
+
+    const selectedSongs = songsList.filter((song) => song.selected);
+    const listText = selectedSongs.length > 0
+      ? selectedSongs
+          .map((song, index) => `${index + 1}. ${song.song.title}${song.notes ? ` — ${song.notes}` : ''}`)
+          .join('\n')
+      : 'Nenhuma música selecionada ainda.';
+
+    const text = `Olá! Já finalizei a seleção da celebração "${event.title}".\n\nMúsicas escolhidas:\n${listText}\n\nLink: ${window.location.href}`;
+
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const selectedCount = songsList.filter((s) => s.selected).length;
   const totalCount = songsList.length;
   const displayedSongs = activeFilter === 'selected'
@@ -350,8 +366,16 @@ export default function EventMobilePageClient({
 
             <div className="flex items-center gap-1.5 shrink-0">
               <button
+                onClick={handleShareWhatsApp}
+                title="Compartilhar seleção no WhatsApp"
+                className="p-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition active:scale-95 border border-emerald-200"
+              >
+                <MessageSquarePlus className="w-4 h-4" />
+              </button>
+
+              <button
                 onClick={handleShareLink}
-                title="Compartilhar Link"
+                title="Copiar link da celebração"
                 className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition active:scale-95 border border-slate-200"
               >
                 {copiedShare ? (
