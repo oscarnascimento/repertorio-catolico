@@ -15,9 +15,12 @@ if (!dbUrl && fs.existsSync(envPath)) {
   }
 }
 
-// Determine target provider based on DATABASE_URL
-const isPostgres = dbUrl && (dbUrl.startsWith('postgres://') || dbUrl.startsWith('postgresql://'));
-const targetProvider = isPostgres ? 'postgresql' : 'sqlite';
+// Determine target provider:
+// If explicitly sqlite (starts with file: or contains .db), use sqlite.
+// Otherwise (Postgres URL, Vercel environment, CI, or production), use postgresql.
+const isExplicitSqlite = dbUrl && (dbUrl.startsWith('file:') || dbUrl.endsWith('.db'));
+const isVercelOrProd = process.env.VERCEL || process.env.NODE_ENV === 'production' || process.env.CI;
+const targetProvider = (isExplicitSqlite && !isVercelOrProd) ? 'sqlite' : 'postgresql';
 
 if (fs.existsSync(schemaPath)) {
   let schema = fs.readFileSync(schemaPath, 'utf8');
