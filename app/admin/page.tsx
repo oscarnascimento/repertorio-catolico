@@ -190,16 +190,9 @@ export default function AdminPage() {
     fetchEvents();
   }, []);
 
-  // Open Edit Modal for an Event
+  // Open Edit Screen for an Event
   const handleOpenEdit = (event: EventItem) => {
-    setEditingEvent(event);
-    setEditTitle(event.title);
-    setEditNotes(event.notes || '');
-    const sorted = [...(event.songs || [])].sort((a, b) => a.order - b.order);
-    setEditSongsList(sorted);
-    setEditCatalogSearch('');
-    setEditFeedback(null);
-    setActiveCommentSongId(null);
+    router.push(`/admin/eventos/${event.id}/editar`);
   };
 
   // Close Edit Modal

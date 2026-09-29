@@ -73,7 +73,7 @@ export async function PUT(request: Request, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { title, notes, songIds, songs } = body;
+    const { title, notes, songIds, songs, addSongIds, removeSongIds } = body;
 
     let updatedTitle = existingEvent.title;
     if (typeof title === 'string' && title.trim()) {
@@ -109,6 +109,46 @@ export async function PUT(request: Request, context: RouteContext) {
           order: index,
         };
       });
+    } else if (Array.isArray(addSongIds) || Array.isArray(removeSongIds)) {
+      const currentSongs = [...existingEvent.songs].sort((a, b) => a.order - b.order);
+      const nextSongs = currentSongs.map((song) => ({
+        songId: song.songId,
+        selected: song.selected,
+        order: song.order,
+        notes: song.notes,
+      }));
+
+      if (Array.isArray(removeSongIds)) {
+        const removeSet = new Set(removeSongIds.filter((value): value is string => typeof value === 'string'));
+        for (const item of nextSongs) {
+          if (removeSet.has(item.songId)) {
+            item.songId = '';
+          }
+        }
+      }
+
+      if (Array.isArray(addSongIds)) {
+        for (const songId of addSongIds) {
+          if (typeof songId !== 'string' || nextSongs.some((item) => item.songId === songId)) {
+            continue;
+          }
+          nextSongs.push({
+            songId,
+            selected: false,
+            order: nextSongs.length,
+            notes: null,
+          });
+        }
+      }
+
+      newSongsData = nextSongs
+        .filter((item) => item.songId)
+        .map((item, index) => ({
+          songId: item.songId,
+          selected: item.selected,
+          order: index,
+          notes: item.notes ?? null,
+        }));
     }
 
     // Atomic database transaction to update title, notes and songs
