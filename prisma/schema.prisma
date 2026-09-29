@@ -1,0 +1,40 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Acervo geral de músicas cadastradas
+model Song {
+  id        String      @id @default(uuid())
+  title     String
+  artist    String?
+  youtube   String?     // Link do YouTube
+  createdAt DateTime    @default(now())
+  events    EventSong[]
+}
+
+// Evento / Celebração (ex: "Adoração 25/09")
+model Event {
+  id        String      @id @default(uuid())
+  title     String
+  createdAt DateTime    @default(now())
+  songs     EventSong[]
+}
+
+// Tabela relacional com estado de seleção e ordenação
+model EventSong {
+  id        String   @id @default(uuid())
+  eventId   String
+  songId    String
+  selected  Boolean  @default(false) // Se o diácono marcou
+  order     Int      @default(0)     // Posição na lista
+
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, songId])
+}
