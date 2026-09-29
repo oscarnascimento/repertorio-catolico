@@ -8,12 +8,24 @@ Desenvolvida com **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, **P
 
 ## 📱 Principais Funcionalidades
 
+- **Autenticação Administrativa (`/admin/login`):**
+  - Acesso protegido via senha de administração configurada por variável de ambiente (`ADMIN_PASSWORD`).
+  - Controle de sessão baseado em cookies HttpOnly seguros assinado com HMAC-SHA256 (`ADMIN_SECRET`).
+  - Proteção de rotas e APIs restritas via `middleware.ts`.
+
 - **Painel do Administrador (`/admin`):**
-  - Cadastro individual de canções e **Importador em Lote de Planilhas** (`.xlsx`, `.xls`, `.csv` ou Copiar & Colar do Google Sheets/Excel) com detecção automática de colunas (`titulo`, `compositor`, `url`).
-  - Botão para **Baixar Modelo de Planilha CSV**.
-  - Criação de novos eventos/celebrações com curadoria de músicas sugeridas.
-  - Geração automática de links compartilháveis para o Diácono/Celebrante.
-  - Listagem e busca rápida no acervo e histórico de celebrações.
+  - **Listagem e Gestão de Eventos:**
+    - Visualização completa de todas as celebrações em cards interativos com cálculo de progresso em tempo real (músicas marcadas vs total).
+    - Busca e filtro dinâmico de eventos por título ou nome de músicas.
+    - **Edição Completa de Eventos:** Modal para alterar o título, adicionar novas músicas do catálogo em 1 clique, remover canções e reordenar a sequência de execução (`▲/▼`).
+    - **Exclusão Segura:** Remoção de eventos com diálogo de confirmação.
+    - **Compartilhamento Rápido:** Cópia instantânea de links públicos e atalho direto para a visão do Diácono.
+  - **Criação de Novos Eventos:**
+    - Curadoria rápida de canções do acervo para montagem da playlist sugerida inicial.
+  - **Gestão do Acervo Musical:**
+    - Cadastro individual de canções e **Importador em Lote de Planilhas** (`.xlsx`, `.xls`, `.csv` ou Copiar & Colar do Google Sheets/Excel) com detecção inteligente de colunas (`titulo`, `compositor`, `url`).
+    - Botão para **Baixar Modelo de Planilha CSV**.
+    - Busca instantânea e acesso direto a links do YouTube.
 
 - **Interface Mobile do Diácono (`/evento/[id]`):**
   - Experiência otimizada para smartphones (*touch-friendly*).

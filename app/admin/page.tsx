@@ -26,6 +26,13 @@ import {
   X,
   CheckCircle2,
   LogOut,
+  Edit,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+  ArrowUpDown,
+  Filter,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
@@ -62,8 +69,11 @@ interface ParsedImportRow {
   isDuplicate?: boolean;
 }
 
+type TabType = 'events' | 'create' | 'catalog';
+
 export default function AdminPage() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState<TabType>('events');
   const [songs, setSongs] = useState<Song[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(true);
@@ -96,6 +106,29 @@ export default function AdminPage() {
   const [eventFilterSearch, setEventFilterSearch] = useState('');
   const [createdEventModal, setCreatedEventModal] = useState<{ id: string; title: string } | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Events Listing Search & Filter State
+  const [eventListSearch, setEventListSearch] = useState('');
+
+  // Event Editing Modal State
+  const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSongsList, setEditSongsList] = useState<
+    Array<{
+      id?: string;
+      songId: string;
+      selected: boolean;
+      order: number;
+      song: Song;
+    }>
+  >([]);
+  const [editCatalogSearch, setEditCatalogSearch] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editFeedback, setEditFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Event Deletion Confirmation State
+  const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
+  const [deletingEvent, setDeletingEvent] = useState(false);
 
   // Catalog search state
   const [catalogSearch, setCatalogSearch] = useState('');
@@ -148,6 +181,154 @@ export default function AdminPage() {
     fetchSongs();
     fetchEvents();
   }, []);
+
+  // Open Edit Modal for an Event
+  const handleOpenEdit = (event: EventItem) => {
+    setEditingEvent(event);
+    setEditTitle(event.title);
+    const sorted = [...(event.songs || [])].sort((a, b) => a.order - b.order);
+    setEditSongsList(sorted);
+    setEditCatalogSearch('');
+    setEditFeedback(null);
+  };
+
+  // Close Edit Modal
+  const handleCloseEdit = () => {
+    setEditingEvent(null);
+    setEditFeedback(null);
+  };
+
+  // Add a song from catalog to the event currently being edited
+  const handleAddSongToEditEvent = (song: Song) => {
+    if (editSongsList.some((item) => item.songId === song.id)) {
+      return;
+    }
+    const newItem = {
+      songId: song.id,
+      selected: false,
+      order: editSongsList.length,
+      song,
+    };
+    setEditSongsList((prev) => [...prev, newItem]);
+  };
+
+  // Remove song from currently edited event
+  const handleRemoveSongFromEditEvent = (songId: string) => {
+    setEditSongsList((prev) => {
+      const filtered = prev.filter((item) => item.songId !== songId);
+      return filtered.map((item, idx) => ({ ...item, order: idx }));
+    });
+  };
+
+  // Reorder songs inside editor (Move Up)
+  const handleMoveSongUpInEdit = (index: number) => {
+    if (index <= 0) return;
+    setEditSongsList((prev) => {
+      const updated = [...prev];
+      const temp = updated[index];
+      updated[index] = updated[index - 1];
+      updated[index - 1] = temp;
+      return updated.map((item, idx) => ({ ...item, order: idx }));
+    });
+  };
+
+  // Reorder songs inside editor (Move Down)
+  const handleMoveSongDownInEdit = (index: number) => {
+    if (index >= editSongsList.length - 1) return;
+    setEditSongsList((prev) => {
+      const updated = [...prev];
+      const temp = updated[index];
+      updated[index] = updated[index + 1];
+      updated[index + 1] = temp;
+      return updated.map((item, idx) => ({ ...item, order: idx }));
+    });
+  };
+
+  // Toggle selection inside editor
+  const handleToggleSelectInEdit = (index: number) => {
+    setEditSongsList((prev) => {
+      return prev.map((item, idx) => {
+        if (idx === index) {
+          return { ...item, selected: !item.selected };
+        }
+        return item;
+      });
+    });
+  };
+
+  // Save changes to the edited event
+  const handleSaveEditEvent = async () => {
+    if (!editingEvent) return;
+    if (!editTitle.trim()) {
+      setEditFeedback({ type: 'error', message: 'Por favor, informe o título da celebração.' });
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditFeedback(null);
+
+    try {
+      const payload = {
+        title: editTitle.trim(),
+        songs: editSongsList.map((item, index) => ({
+          songId: item.songId,
+          selected: item.selected,
+          order: index,
+        })),
+      };
+
+      const res = await fetch(`/api/events/${editingEvent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Erro ao salvar alterações do evento.');
+      }
+
+      const updated = await res.json();
+
+      // Update state
+      setEvents((prev) => prev.map((evt) => (evt.id === updated.id ? updated : evt)));
+      setEditFeedback({ type: 'success', message: 'Evento atualizado com sucesso!' });
+
+      setTimeout(() => {
+        handleCloseEdit();
+      }, 1200);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao atualizar evento';
+      setEditFeedback({ type: 'error', message: msg });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // Delete an Event
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete) return;
+
+    setDeletingEvent(true);
+    try {
+      const res = await fetch(`/api/events/${eventToDelete.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Erro ao excluir evento');
+      }
+
+      setEvents((prev) => prev.filter((evt) => evt.id !== eventToDelete.id));
+      setEventToDelete(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao excluir evento';
+      alert(msg);
+    } finally {
+      setDeletingEvent(false);
+    }
+  };
 
   // Handle Add Single Song
   const handleAddSong = async (e: React.FormEvent) => {
@@ -271,7 +452,6 @@ export default function AdminPage() {
     const lines = pastedText.trim().split(/\r?\n/);
     if (lines.length === 0) return;
 
-    // Detect delimiter: tab, semicolon, comma
     const firstLine = lines[0];
     const delimiter = firstLine.includes('\t') ? '\t' : firstLine.includes(';') ? ';' : ',';
 
@@ -352,7 +532,6 @@ export default function AdminPage() {
         invalid: result.invalidCount,
       });
 
-      // Refresh catalog in background
       await fetchSongs();
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao importar planilha';
@@ -448,6 +627,32 @@ export default function AdminPage() {
     );
   }, [songs, catalogSearch]);
 
+  // Filter events in the main list
+  const filteredEventsList = useMemo(() => {
+    const search = eventListSearch.toLowerCase().trim();
+    if (!search) return events;
+    return events.filter(
+      (evt) =>
+        evt.title.toLowerCase().includes(search) ||
+        evt.songs.some(
+          (s) =>
+            s.song.title.toLowerCase().includes(search) ||
+            (s.song.artist && s.song.artist.toLowerCase().includes(search))
+        )
+    );
+  }, [events, eventListSearch]);
+
+  // Filter catalog songs for the edit modal
+  const filteredSongsForEditCatalog = useMemo(() => {
+    const search = editCatalogSearch.toLowerCase().trim();
+    if (!search) return songs;
+    return songs.filter(
+      (s) =>
+        s.title.toLowerCase().includes(search) ||
+        (s.artist && s.artist.toLowerCase().includes(search))
+    );
+  }, [songs, editCatalogSearch]);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-slate-100">
       {/* Top Navigation */}
@@ -479,7 +684,7 @@ export default function AdminPage() {
               className="px-3 py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-sm"
             >
               <FileSpreadsheet className="w-4 h-4 text-blue-400" />
-              <span>Importar Planilha</span>
+              <span className="hidden sm:inline">Importar Planilha</span>
             </button>
 
             <button
@@ -510,240 +715,576 @@ export default function AdminPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Quick Stats Bar */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card">
+          <div
+            onClick={() => setActiveTab('catalog')}
+            className={`cursor-pointer transition-all duration-200 border rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card ${
+              activeTab === 'catalog'
+                ? 'bg-blue-950/40 border-blue-500/50 ring-2 ring-blue-500/20'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90'
+            }`}
+          >
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Músicas no Acervo</p>
               <p className="text-3xl font-extrabold text-white mt-1">{songs.length}</p>
+              <p className="text-[11px] text-blue-400 mt-1 flex items-center gap-1">
+                <span>Ver acervo completo</span>
+                <ArrowRight className="w-3 h-3" />
+              </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
               <Music className="w-6 h-6" />
             </div>
           </div>
 
-          <div className="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card">
+          <div
+            onClick={() => setActiveTab('events')}
+            className={`cursor-pointer transition-all duration-200 border rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card ${
+              activeTab === 'events'
+                ? 'bg-amber-950/40 border-amber-500/50 ring-2 ring-amber-500/20'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90'
+            }`}
+          >
             <div>
               <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Eventos / Celebrações</p>
               <p className="text-3xl font-extrabold text-white mt-1">{events.length}</p>
+              <p className="text-[11px] text-amber-400 mt-1 flex items-center gap-1">
+                <span>Gerenciar eventos</span>
+                <ArrowRight className="w-3 h-3" />
+              </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
               <Calendar className="w-6 h-6" />
             </div>
           </div>
 
-          <div className="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card">
+          <div
+            onClick={() => setActiveTab('create')}
+            className={`cursor-pointer transition-all duration-200 border rounded-2xl p-5 flex items-center justify-between backdrop-blur-sm shadow-card ${
+              activeTab === 'create'
+                ? 'bg-emerald-950/40 border-emerald-500/50 ring-2 ring-emerald-500/20'
+                : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800/90'
+            }`}
+          >
             <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Banco de Dados</p>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Novo Evento</p>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="relative flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                 </span>
-                <p className="text-sm font-semibold text-emerald-400">SQLite Conectado</p>
+                <p className="text-sm font-semibold text-emerald-400">Criar Celebração</p>
               </div>
+              <p className="text-[11px] text-slate-400 mt-1">Gere link para o Diácono</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
-              <Radio className="w-6 h-6" />
+              <PlusCircle className="w-6 h-6" />
             </div>
           </div>
         </div>
 
-        {/* Action Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Left Column (Forms) */}
-          <div className="lg:col-span-7 space-y-8">
-            {/* Form 1: Criar Novo Evento */}
-            <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
-              <div className="flex items-center gap-3 pb-4 border-b border-slate-700/60 mb-6">
-                <div className="w-9 h-9 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-white">Criar Novo Evento / Celebração</h2>
-                  <p className="text-xs text-slate-400">
-                    Defina o título e selecione as músicas sugeridas para o Diácono escolher
-                  </p>
-                </div>
+        {/* Tab Navigation Header */}
+        <div className="flex items-center justify-between border-b border-slate-700/80 pb-3">
+          <div className="flex items-center gap-2 sm:gap-4 overflow-x-auto">
+            <button
+              onClick={() => setActiveTab('events')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition ${
+                activeTab === 'events'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                  : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>Eventos & Celebrações</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full ${
+                  activeTab === 'events' ? 'bg-slate-950 text-amber-400 font-extrabold' : 'bg-slate-900 text-slate-400'
+                }`}
+              >
+                {events.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition ${
+                activeTab === 'create'
+                  ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                  : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80'
+              }`}
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Criar Novo Evento</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('catalog')}
+              className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition ${
+                activeTab === 'catalog'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                  : 'bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80'
+              }`}
+            >
+              <ListMusic className="w-4 h-4" />
+              <span>Acervo de Músicas</span>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full ${
+                  activeTab === 'catalog' ? 'bg-white text-blue-700 font-extrabold' : 'bg-slate-900 text-slate-400'
+                }`}
+              >
+                {songs.length}
+              </span>
+            </button>
+          </div>
+
+          {activeTab === 'events' && (
+            <button
+              onClick={() => setActiveTab('create')}
+              className="hidden md:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition shadow-sm"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>Novo Evento</span>
+            </button>
+          )}
+        </div>
+
+        {/* TAB 1: LISTAGEM E GERENCIAMENTO DE EVENTOS */}
+        {activeTab === 'events' && (
+          <section className="space-y-6">
+            {/* Search and filter bar for events */}
+            <div className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-4 shadow-card backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="relative w-full sm:w-96">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar evento por título ou música..."
+                  value={eventListSearch}
+                  onChange={(e) => setEventListSearch(e.target.value)}
+                  className="w-full bg-slate-900/90 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                />
+                {eventListSearch && (
+                  <button
+                    onClick={() => setEventListSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
               </div>
 
-              <form onSubmit={handleCreateEvent} className="space-y-5">
+              <div className="flex items-center gap-3 text-xs text-slate-400 w-full sm:w-auto justify-between sm:justify-end">
+                <span>
+                  Exibindo <strong className="text-white">{filteredEventsList.length}</strong> de{' '}
+                  <strong className="text-white">{events.length}</strong> celebrações
+                </span>
+                <button
+                  onClick={fetchEvents}
+                  className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                  title="Atualizar lista"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {loadingEvents ? (
+              <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-16 text-center space-y-3">
+                <RefreshCw className="w-8 h-8 text-amber-400 animate-spin mx-auto" />
+                <p className="text-sm text-slate-400 font-medium">Carregando lista de eventos...</p>
+              </div>
+            ) : filteredEventsList.length === 0 ? (
+              <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-16 text-center space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
+                  <Calendar className="w-8 h-8" />
+                </div>
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                    Título da Celebração <span className="text-amber-400">*</span>
+                  <h3 className="text-lg font-bold text-white">Nenhum evento encontrado</h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                    {eventListSearch
+                      ? `Não encontramos nenhum evento com o termo "${eventListSearch}".`
+                      : 'Nenhuma celebração ou evento cadastrado até o momento.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setEventListSearch('');
+                    setActiveTab('create');
+                  }}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-amber-500/20 transition inline-flex items-center gap-2"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Criar Primeira Celebração</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {filteredEventsList.map((event) => {
+                  const selectedCount = event.songs?.filter((s) => s.selected).length || 0;
+                  const totalSongs = event.songs?.length || 0;
+                  const percent = totalSongs > 0 ? Math.round((selectedCount / totalSongs) * 100) : 0;
+
+                  return (
+                    <div
+                      key={event.id}
+                      className="bg-slate-800/80 border border-slate-700/80 hover:border-slate-600/90 rounded-2xl p-5 shadow-card backdrop-blur-md flex flex-col justify-between space-y-4 transition group"
+                    >
+                      <div>
+                        {/* Header & Badges */}
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="space-y-1">
+                            <h3 className="text-base font-bold text-white group-hover:text-amber-300 transition line-clamp-1">
+                              {event.title}
+                            </h3>
+                            <div className="flex items-center gap-2 text-xs text-slate-400">
+                              <Clock className="w-3.5 h-3.5 text-slate-500" />
+                              <span>{formatDateTime(event.createdAt)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-1">
+                            <span
+                              className={`text-[11px] px-2.5 py-0.5 rounded-full font-bold border ${
+                                selectedCount === totalSongs && totalSongs > 0
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
+                                  : selectedCount > 0
+                                  ? 'bg-blue-950/80 text-blue-300 border-blue-500/40'
+                                  : 'bg-slate-900 text-slate-400 border-slate-700'
+                              }`}
+                            >
+                              {selectedCount}/{totalSongs} marcadas
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              {percent}% concluído
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-slate-900/80 h-1.5 rounded-full overflow-hidden mb-3.5 border border-slate-800">
+                          <div
+                            className={`h-full transition-all duration-500 rounded-full ${
+                              percent === 100
+                                ? 'bg-emerald-500'
+                                : percent > 0
+                                ? 'bg-blue-500'
+                                : 'bg-slate-700'
+                            }`}
+                            style={{ width: `${percent}%` }}
+                          />
+                        </div>
+
+                        {/* Songs Preview List */}
+                        <div className="space-y-1.5 bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 max-h-40 overflow-y-auto">
+                          {event.songs.length === 0 ? (
+                            <p className="text-xs text-slate-500 italic py-2 text-center">
+                              Nenhuma música vinculada a este evento. Clique em &quot;Editar&quot; para adicionar.
+                            </p>
+                          ) : (
+                            event.songs.map((es, idx) => (
+                              <div
+                                key={es.id || idx}
+                                className={`flex items-center justify-between gap-2 p-1.5 rounded-lg text-xs transition ${
+                                  es.selected
+                                    ? 'bg-emerald-950/30 text-emerald-200 font-medium border border-emerald-500/20'
+                                    : 'text-slate-300 hover:bg-slate-800/60'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <span
+                                    className={`w-4 h-4 rounded text-[10px] flex items-center justify-center shrink-0 font-bold ${
+                                      es.selected
+                                        ? 'bg-emerald-500 text-slate-950'
+                                        : 'bg-slate-800 text-slate-400'
+                                    }`}
+                                  >
+                                    {es.selected ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
+                                  </span>
+                                  <span className="truncate">{es.song?.title || 'Música'}</span>
+                                  {es.song?.artist && (
+                                    <span className="text-slate-500 text-[10px] truncate hidden sm:inline">
+                                      ({es.song.artist})
+                                    </span>
+                                  )}
+                                </div>
+
+                                {es.song?.youtube && (
+                                  <span className="text-[10px] text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded border border-red-800/30 shrink-0 flex items-center gap-1">
+                                    <Youtube className="w-2.5 h-2.5" />
+                                    Vídeo
+                                  </span>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div className="pt-3 border-t border-slate-700/60 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {/* 1. Edit Button */}
+                        <button
+                          onClick={() => handleOpenEdit(event)}
+                          className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
+                          title="Alterar músicas e título deste evento"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                          <span>Editar</span>
+                        </button>
+
+                        {/* 2. Copy Link Button */}
+                        <button
+                          onClick={() => copyEventLink(event.id)}
+                          className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+                          title="Copiar link da celebração para enviar ao Diácono"
+                        >
+                          {copiedId === event.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-emerald-400 font-bold">Copiado</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Copiar Link</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* 3. Open Public View */}
+                        <Link
+                          href={`/evento/${event.id}`}
+                          target="_blank"
+                          className="px-3 py-2 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 hover:text-blue-200 border border-blue-500/40 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+                          title="Abrir página do Diácono em nova aba"
+                        >
+                          <span>Diácono</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Link>
+
+                        {/* 4. Delete Button */}
+                        <button
+                          onClick={() => setEventToDelete(event)}
+                          className="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-95"
+                          title="Excluir este evento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Excluir</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* TAB 2: CRIAR NOVO EVENTO */}
+        {activeTab === 'create' && (
+          <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md max-w-4xl mx-auto">
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-700/60 mb-6">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                <Calendar className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-white">Criar Nova Celebração / Evento</h2>
+                <p className="text-xs text-slate-400">
+                  Defina o título e selecione as músicas sugeridas para o Diácono escolher e ordenar
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateEvent} className="space-y-6">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
+                  Título da Celebração <span className="text-amber-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Adoração Santíssimo - Quinta-feira 20h"
+                  value={eventTitle}
+                  onChange={(e) => setEventTitle(e.target.value)}
+                  className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+                    Músicas Sugeridas ({selectedSongIds.length} selecionada{selectedSongIds.length === 1 ? '' : 's'})
                   </label>
+                  {filteredSongsForEvent.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={selectAllFilteredSongs}
+                      className="text-xs text-amber-400 hover:text-amber-300 font-medium transition"
+                    >
+                      {filteredSongsForEvent.every((s) => selectedSongIds.includes(s.id))
+                        ? 'Desmarcar visíveis'
+                        : 'Selecionar visíveis'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Search inside event picker */}
+                <div className="relative mb-3">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
-                    required
-                    placeholder="Ex: Adoração Santíssimo - Quinta-feira 20h"
-                    value={eventTitle}
-                    onChange={(e) => setEventTitle(e.target.value)}
-                    className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition"
+                    placeholder="Filtrar músicas do acervo..."
+                    value={eventFilterSearch}
+                    onChange={(e) => setEventFilterSearch(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
                   />
                 </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                      Músicas Sugeridas ({selectedSongIds.length} selecionada{selectedSongIds.length === 1 ? '' : 's'})
-                    </label>
-                    {filteredSongsForEvent.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={selectAllFilteredSongs}
-                        className="text-xs text-amber-400 hover:text-amber-300 font-medium transition"
-                      >
-                        {filteredSongsForEvent.every((s) => selectedSongIds.includes(s.id))
-                          ? 'Desmarcar visíveis'
-                          : 'Selecionar visíveis'}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Search inside event picker */}
-                  <div className="relative mb-3">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Filtrar músicas do acervo..."
-                      value={eventFilterSearch}
-                      onChange={(e) => setEventFilterSearch(e.target.value)}
-                      className="w-full bg-slate-900/60 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
-                    />
-                  </div>
-
-                  {/* Scrollable song checklist */}
-                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border border-slate-700/60 rounded-xl p-2.5 bg-slate-900/40">
-                    {loadingSongs ? (
-                      <div className="py-8 text-center text-xs text-slate-400">Carregando acervo...</div>
-                    ) : songs.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-slate-400">
-                        Nenhuma música cadastrada no acervo ainda. Cadastre abaixo ou importe uma planilha!
-                      </div>
-                    ) : filteredSongsForEvent.length === 0 ? (
-                      <div className="py-6 text-center text-xs text-slate-400">
-                        Nenhuma música encontrada para &quot;{eventFilterSearch}&quot;.
-                      </div>
-                    ) : (
-                      filteredSongsForEvent.map((song) => {
-                        const isChecked = selectedSongIds.includes(song.id);
-                        return (
-                          <div
-                            key={song.id}
-                            onClick={() => toggleSelectSong(song.id)}
-                            className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition border text-sm ${
-                              isChecked
-                                ? 'bg-amber-500/15 border-amber-500/50 text-white font-medium'
-                                : 'bg-slate-800/40 border-slate-700/40 text-slate-300 hover:bg-slate-800'
-                            }`}
-                          >
-                            <div className="flex items-center space-x-3 overflow-hidden">
-                              <div
-                                className={`w-5 h-5 rounded flex items-center justify-center border transition ${
-                                  isChecked
-                                    ? 'bg-amber-500 border-amber-500 text-slate-950 font-bold'
-                                    : 'border-slate-600 bg-slate-900/80'
-                                }`}
-                              >
-                                {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                              </div>
-                              <div className="truncate">
-                                <span className="text-xs sm:text-sm">{song.title}</span>
-                                {song.artist && (
-                                  <span className="text-xs text-slate-400 ml-2">({song.artist})</span>
-                                )}
-                              </div>
+                {/* Scrollable song checklist */}
+                <div className="max-h-80 overflow-y-auto space-y-2 pr-1 border border-slate-700/60 rounded-xl p-2.5 bg-slate-900/40">
+                  {loadingSongs ? (
+                    <div className="py-8 text-center text-xs text-slate-400">Carregando acervo...</div>
+                  ) : songs.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-slate-400">
+                      Nenhuma música cadastrada no acervo ainda. Cadastre no Acervo ou importe uma planilha!
+                    </div>
+                  ) : filteredSongsForEvent.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-slate-400">
+                      Nenhuma música encontrada para &quot;{eventFilterSearch}&quot;.
+                    </div>
+                  ) : (
+                    filteredSongsForEvent.map((song) => {
+                      const isChecked = selectedSongIds.includes(song.id);
+                      return (
+                        <div
+                          key={song.id}
+                          onClick={() => toggleSelectSong(song.id)}
+                          className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition border text-sm ${
+                            isChecked
+                              ? 'bg-amber-500/15 border-amber-500/50 text-white font-medium'
+                              : 'bg-slate-800/40 border-slate-700/40 text-slate-300 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-3 overflow-hidden">
+                            <div
+                              className={`w-5 h-5 rounded flex items-center justify-center border transition ${
+                                isChecked
+                                  ? 'bg-amber-500 border-amber-500 text-slate-950 font-bold'
+                                  : 'border-slate-600 bg-slate-900/80'
+                              }`}
+                            >
+                              {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                             </div>
-                            {song.youtube && (
-                              <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 text-red-300 border border-red-800/40 flex items-center gap-1 shrink-0 ml-2">
-                                <Youtube className="w-3 h-3 text-red-400" />
-                                Vídeo
-                              </span>
-                            )}
+                            <div className="truncate">
+                              <span className="text-xs sm:text-sm">{song.title}</span>
+                              {song.artist && (
+                                <span className="text-xs text-slate-400 ml-2">({song.artist})</span>
+                              )}
+                            </div>
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
+                          {song.youtube && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-red-950/60 text-red-300 border border-red-800/40 flex items-center gap-1 shrink-0 ml-2">
+                              <Youtube className="w-3 h-3 text-red-400" />
+                              Vídeo
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
+              </div>
 
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('events')}
+                  className="px-4 py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition"
+                >
+                  Ver Lista de Eventos
+                </button>
                 <button
                   type="submit"
                   disabled={creatingEvent || !eventTitle.trim()}
-                  className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-3 px-6 rounded-xl shadow-lg shadow-amber-500/20 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                 >
                   {creatingEvent ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      Gerando Evento...
+                      <span>Gerando Evento...</span>
                     </>
                   ) : (
                     <>
                       <PlusCircle className="w-5 h-5" />
-                      Criar Evento e Gerar Link Público
+                      <span>Criar Evento e Gerar Link</span>
                     </>
                   )}
                 </button>
-              </form>
-            </section>
-
-            {/* Form 2: Cadastrar Músicas Manualmente */}
-            <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-700/60 mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                    <Music className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-bold text-white">Cadastrar Música Individual</h2>
-                    <p className="text-xs text-slate-400">Adicione uma canção diretamente ao acervo</p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setParsedRows([]);
-                    setImportResult(null);
-                    setPastedText('');
-                    setIsImportModalOpen(true);
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>Importar Planilha</span>
-                </button>
               </div>
+            </form>
+          </section>
+        )}
 
-              {songFeedback && (
-                <div
-                  className={`p-3 rounded-xl mb-4 text-xs font-medium border flex items-center justify-between ${
-                    songFeedback.type === 'success'
-                      ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200'
-                      : 'bg-red-950/60 border-red-500/50 text-red-200'
-                  }`}
-                >
-                  <span>{songFeedback.message}</span>
-                  <button onClick={() => setSongFeedback(null)} className="text-xs opacity-70 hover:opacity-100">
-                    ✕
+        {/* TAB 3: ACERVO DE MÚSICAS (CADASTRO E LISTA) */}
+        {activeTab === 'catalog' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Left: Add Song Form */}
+            <div className="lg:col-span-5 space-y-6">
+              <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-700/60 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                      <Music className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-base font-bold text-white">Cadastrar Música</h2>
+                      <p className="text-xs text-slate-400">Adicione ao acervo geral</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setParsedRows([]);
+                      setImportResult(null);
+                      setPastedText('');
+                      setIsImportModalOpen(true);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-400 hover:text-blue-300 border border-blue-500/30 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>Importar Planilha</span>
                   </button>
                 </div>
-              )}
 
-              <form onSubmit={handleAddSong} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Título da Canção <span className="text-amber-400">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Diante do Rei, Tão Sublime Sacramento, Eis-me Aqui"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  />
-                </div>
+                {songFeedback && (
+                  <div
+                    className={`p-3 rounded-xl mb-4 text-xs font-medium border flex items-center justify-between ${
+                      songFeedback.type === 'success'
+                        ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-200'
+                        : 'bg-red-950/60 border-red-500/50 text-red-200'
+                    }`}
+                  >
+                    <span>{songFeedback.message}</span>
+                    <button onClick={() => setSongFeedback(null)} className="text-xs opacity-70 hover:opacity-100">
+                      ✕
+                    </button>
+                  </div>
+                )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <form onSubmit={handleAddSong} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                      Título da Canção <span className="text-amber-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Diante do Rei, Tão Sublime Sacramento"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    />
+                  </div>
+
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
                       Compositor / Artista <span className="text-slate-500 font-normal">(Opcional)</span>
@@ -769,179 +1310,402 @@ export default function AdminPage() {
                       className="w-full bg-slate-900/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                     />
                   </div>
-                </div>
 
-                <button
-                  type="submit"
-                  disabled={creatingSong || !newTitle.trim()}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-blue-300 hover:text-white border border-blue-500/30 font-semibold py-2.5 px-4 rounded-xl transition active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {creatingSong ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Cadastrando...
-                    </>
-                  ) : (
-                    <>
-                      <PlusCircle className="w-4 h-4" />
-                      Cadastrar no Acervo
-                    </>
-                  )}
-                </button>
-              </form>
-            </section>
-          </div>
+                  <button
+                    type="submit"
+                    disabled={creatingSong || !newTitle.trim()}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-blue-300 hover:text-white border border-blue-500/30 font-semibold py-2.5 px-4 rounded-xl transition active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-xs"
+                  >
+                    {creatingSong ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Cadastrando...
+                      </>
+                    ) : (
+                      <>
+                        <PlusCircle className="w-4 h-4" />
+                        Cadastrar no Acervo
+                      </>
+                    )}
+                  </button>
+                </form>
+              </section>
+            </div>
 
-          {/* Right Column: Events & Catalog Lists */}
-          <div className="lg:col-span-5 space-y-8">
-            {/* Lista de Eventos Criados */}
-            <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-700/60 mb-5">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                    <Layers className="w-4 h-4" />
+            {/* Right: Catalog List */}
+            <div className="lg:col-span-7 space-y-6">
+              <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-700/60 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
+                      <ListMusic className="w-4 h-4" />
+                    </div>
+                    <h2 className="text-base font-bold text-white">Acervo Cadastrado</h2>
                   </div>
-                  <h2 className="text-base font-bold text-white">Eventos Gerados</h2>
-                </div>
-                <span className="text-xs bg-slate-900 px-2.5 py-1 rounded-full text-slate-400 border border-slate-700">
-                  {events.length} total
-                </span>
-              </div>
-
-              {loadingEvents ? (
-                <div className="py-12 text-center text-xs text-slate-400">Carregando eventos...</div>
-              ) : events.length === 0 ? (
-                <div className="py-12 text-center text-xs text-slate-400">
-                  Nenhum evento criado ainda. Preencha o formulário ao lado para gerar o primeiro!
-                </div>
-              ) : (
-                <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                  {events.map((event) => {
-                    const selectedCount = event.songs?.filter((s) => s.selected).length || 0;
-                    const totalSongs = event.songs?.length || 0;
-
-                    return (
-                      <div
-                        key={event.id}
-                        className="p-4 rounded-xl bg-slate-900/70 border border-slate-700/80 hover:border-slate-600 transition space-y-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <h3 className="text-sm font-bold text-white line-clamp-1">{event.title}</h3>
-                            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                              <Clock className="w-3 h-3" />
-                              <span>{formatDateTime(event.createdAt)}</span>
-                            </div>
-                          </div>
-                          <span className="text-[11px] px-2 py-0.5 rounded-md bg-blue-950/80 border border-blue-800/40 text-blue-300 font-medium shrink-0">
-                            {selectedCount}/{totalSongs} marcadas
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                          <button
-                            onClick={() => copyEventLink(event.id)}
-                            className="flex-1 text-xs py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center gap-1.5 transition active:scale-95"
-                          >
-                            {copiedId === event.id ? (
-                              <>
-                                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                                <span className="text-emerald-400 font-medium">Link Copiado!</span>
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3.5 h-3.5" />
-                                <span>Copiar Link</span>
-                              </>
-                            )}
-                          </button>
-
-                          <Link
-                            href={`/evento/${event.id}`}
-                            target="_blank"
-                            className="text-xs py-1.5 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 flex items-center justify-center gap-1.5 transition active:scale-95"
-                          >
-                            <span>Abrir</span>
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </Link>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
-            {/* Acervo Geral de Músicas */}
-            <section className="bg-slate-800/70 border border-slate-700/80 rounded-2xl p-6 shadow-card backdrop-blur-md">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-700/60 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                    <ListMusic className="w-4 h-4" />
-                  </div>
-                  <h2 className="text-base font-bold text-white">Acervo Cadastrado</h2>
-                </div>
-                <div className="flex items-center gap-2">
                   <span className="text-xs bg-slate-900 px-2.5 py-1 rounded-full text-slate-400 border border-slate-700">
                     {filteredCatalogSongs.length} músicas
                   </span>
                 </div>
+
+                {/* Search in catalog */}
+                <div className="relative mb-3">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por título ou compositor..."
+                    value={catalogSearch}
+                    onChange={(e) => setCatalogSearch(e.target.value)}
+                    className="w-full bg-slate-900/60 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+
+                <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
+                  {loadingSongs ? (
+                    <div className="py-12 text-center text-xs text-slate-400">Carregando acervo...</div>
+                  ) : filteredCatalogSongs.length === 0 ? (
+                    <div className="py-12 text-center text-xs text-slate-400">
+                      Nenhuma música encontrada. Use o botão &quot;Importar Planilha&quot; para adicionar em lote!
+                    </div>
+                  ) : (
+                    filteredCatalogSongs.map((song) => (
+                      <div
+                        key={song.id}
+                        className="p-3 rounded-xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="truncate">
+                          <p className="font-semibold text-white truncate">{song.title}</p>
+                          <p className="text-slate-400 text-[11px] truncate">
+                            {song.artist || 'Compositor não especificado'}
+                          </p>
+                        </div>
+
+                        {song.youtube && (
+                          <a
+                            href={song.youtube}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-2.5 py-1 rounded-md bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 flex items-center gap-1.5 transition shrink-0"
+                            title="Ouvir no YouTube"
+                          >
+                            <Youtube className="w-3.5 h-3.5 text-red-400" />
+                            <span className="text-[10px] font-medium">Ouvir</span>
+                          </a>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* MODAL: EDITAR EVENTO & ALTERAR MÚSICAS */}
+      {editingEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl space-y-5 max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Editar Celebração / Evento</h3>
+                  <p className="text-xs text-slate-400">
+                    Altere o título, adicione, remova ou reordene as músicas deste evento
+                  </p>
+                </div>
               </div>
 
-              {/* Search in catalog */}
-              <div className="relative mb-3">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <button
+                onClick={handleCloseEdit}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Feedback Alert */}
+            {editFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium border flex items-center justify-between ${
+                  editFeedback.type === 'success'
+                    ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200'
+                    : 'bg-red-950/80 border-red-500/60 text-red-200'
+                }`}
+              >
+                <span>{editFeedback.message}</span>
+                <button onClick={() => setEditFeedback(null)} className="opacity-70 hover:opacity-100">
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+              {/* Event Title */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Título da Celebração <span className="text-amber-400">*</span>
+                </label>
                 <input
                   type="text"
-                  placeholder="Pesquisar por título ou compositor..."
-                  value={catalogSearch}
-                  onChange={(e) => setCatalogSearch(e.target.value)}
-                  className="w-full bg-slate-900/60 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                  placeholder="Nome do evento"
                 />
               </div>
 
-              <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
-                {loadingSongs ? (
-                  <div className="py-8 text-center text-xs text-slate-400">Carregando acervo...</div>
-                ) : filteredCatalogSongs.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-slate-400">
-                    Nenhuma música encontrada. Use o botão &quot;Importar Planilha&quot; para adicionar em lote!
+              {/* Grid 2 Columns: Songs in Event vs Catalog Search */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                {/* Column 1: Current Event Songs */}
+                <div className="md:col-span-7 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                      <span>Músicas no Evento</span>
+                      <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px]">
+                        {editSongsList.length} total
+                      </span>
+                    </h4>
+                    <span className="text-[11px] text-slate-400">Use as setas para reordenar</span>
                   </div>
-                ) : (
-                  filteredCatalogSongs.map((song) => (
-                    <div
-                      key={song.id}
-                      className="p-3 rounded-xl bg-slate-900/50 border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-3 text-xs"
-                    >
-                      <div className="truncate">
-                        <p className="font-semibold text-white truncate">{song.title}</p>
-                        <p className="text-slate-400 text-[11px] truncate">
-                          {song.artist || 'Compositor não especificado'}
-                        </p>
-                      </div>
 
-                      {song.youtube && (
-                        <a
-                          href={song.youtube}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-2.5 py-1 rounded-md bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 flex items-center gap-1.5 transition shrink-0"
-                          title="Ouvir no YouTube"
+                  <div className="max-h-72 overflow-y-auto space-y-2 border border-slate-800 rounded-xl p-2.5 bg-slate-950/60">
+                    {editSongsList.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        Nenhuma música adicionada ao evento. Selecione músicas do catálogo ao lado!
+                      </div>
+                    ) : (
+                      editSongsList.map((item, index) => (
+                        <div
+                          key={item.songId}
+                          className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-2 text-xs"
                         >
-                          <Youtube className="w-3.5 h-3.5 text-red-400" />
-                          <span className="text-[10px] font-medium">Ouvir</span>
-                        </a>
-                      )}
-                    </div>
-                  ))
-                )}
+                          <div className="flex items-center gap-2.5 overflow-hidden">
+                            {/* Order Badge */}
+                            <span className="w-5 h-5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
+                              {index + 1}
+                            </span>
+
+                            {/* Song Info */}
+                            <div className="truncate">
+                              <p className="font-semibold text-white truncate">{item.song?.title || 'Música'}</p>
+                              {item.song?.artist && (
+                                <p className="text-[10px] text-slate-400 truncate">{item.song.artist}</p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons for this item */}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* Toggle selection status */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSelectInEdit(index)}
+                              className={`p-1.5 rounded-md border text-[10px] transition ${
+                                item.selected
+                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40 font-bold'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                              }`}
+                              title={item.selected ? 'Marcada como escolhida' : 'Marcar como escolhida'}
+                            >
+                              <Check className="w-3 h-3" />
+                            </button>
+
+                            {/* Move Up */}
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => handleMoveSongUpInEdit(index)}
+                              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
+                              title="Subir posição"
+                            >
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Move Down */}
+                            <button
+                              type="button"
+                              disabled={index === editSongsList.length - 1}
+                              onClick={() => handleMoveSongDownInEdit(index)}
+                              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
+                              title="Descer posição"
+                            >
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Remove from event */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSongFromEditEvent(item.songId)}
+                              className="p-1.5 rounded-md bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 transition"
+                              title="Remover deste evento"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Column 2: Add Songs from Catalog */}
+                <div className="md:col-span-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                      Adicionar do Acervo
+                    </h4>
+                  </div>
+
+                  {/* Search in catalog */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Pesquisar acervo..."
+                      value={editCatalogSearch}
+                      onChange={(e) => setEditCatalogSearch(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                    />
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto space-y-1.5 border border-slate-800 rounded-xl p-2 bg-slate-950/60">
+                    {filteredSongsForEditCatalog.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-500">Nenhuma música encontrada.</div>
+                    ) : (
+                      filteredSongsForEditCatalog.map((song) => {
+                        const isAlreadyInEvent = editSongsList.some((item) => item.songId === song.id);
+                        return (
+                          <div
+                            key={song.id}
+                            className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 transition ${
+                              isAlreadyInEvent
+                                ? 'bg-amber-950/20 border-amber-500/30 text-amber-200/80'
+                                : 'bg-slate-900/70 border-slate-800 text-slate-200 hover:border-slate-700'
+                            }`}
+                          >
+                            <div className="truncate">
+                              <p className="font-semibold truncate text-[11px]">{song.title}</p>
+                              {song.artist && (
+                                <p className="text-[10px] text-slate-400 truncate">{song.artist}</p>
+                              )}
+                            </div>
+
+                            {isAlreadyInEvent ? (
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-medium shrink-0 flex items-center gap-1">
+                                <Check className="w-3 h-3" />
+                                Adicionada
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleAddSongToEditEvent(song)}
+                                className="px-2.5 py-1 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold flex items-center gap-1 shrink-0 transition active:scale-95"
+                              >
+                                <Plus className="w-3 h-3 stroke-[3]" />
+                                <span>Adicionar</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
-            </section>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={handleCloseEdit}
+                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={savingEdit || !editTitle.trim()}
+                onClick={handleSaveEditEvent}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 transition active:scale-95 flex items-center gap-2 disabled:opacity-50"
+              >
+                {savingEdit ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Salvando Alterações...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>Salvar Alterações do Evento</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
-      </main>
+      )}
 
-      {/* Modal: Importador de Planilha (Excel / CSV / Copiar-Colar) */}
+      {/* MODAL: CONFIRMAÇÃO DE EXCLUSÃO DE EVENTO */}
+      {eventToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Excluir Celebração?</h3>
+                <p className="text-xs text-slate-400">Esta ação não poderá ser desfeita.</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 text-xs text-slate-300">
+              Você tem certeza que deseja excluir o evento <strong className="text-white">&quot;{eventToDelete.title}&quot;</strong>?
+              O link público correspondente deixará de funcionar.
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={deletingEvent}
+                onClick={() => setEventToDelete(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={deletingEvent}
+                onClick={handleDeleteEvent}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-600/20 transition active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {deletingEvent ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Excluindo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Sim, Excluir Evento</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: IMPORTADOR DE PLANILHA (Excel / CSV / Copiar-Colar) */}
       {isImportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-blue-500/40 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] flex flex-col">
@@ -1186,7 +1950,7 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Modal / Alert on Event Creation */}
+      {/* MODAL / ALERT NA CRIAÇÃO DE EVENTO */}
       {createdEventModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-amber-500/40 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
@@ -1227,10 +1991,13 @@ export default function AdminPage() {
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
-                onClick={() => setCreatedEventModal(null)}
+                onClick={() => {
+                  setCreatedEventModal(null);
+                  setActiveTab('events');
+                }}
                 className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition"
               >
-                Fechar
+                Ir para Lista de Eventos
               </button>
               <Link
                 href={`/evento/${createdEventModal.id}`}

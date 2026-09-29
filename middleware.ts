@@ -26,9 +26,12 @@ export async function middleware(request: NextRequest) {
 
   // 3. Protected Mutation API Endpoints
   const isSongsMutation = pathname.startsWith('/api/songs') && request.method !== 'GET';
-  const isEventsCreation = pathname === '/api/events' && request.method !== 'GET';
+  const isEventsMutation =
+    pathname.startsWith('/api/events') &&
+    request.method !== 'GET' &&
+    !pathname.endsWith('/songs');
 
-  if (isSongsMutation || isEventsCreation) {
+  if (isSongsMutation || isEventsMutation) {
     if (!isAuthenticated) {
       return NextResponse.json(
         { error: 'Acesso não autorizado. Sessão de administrador necessária.' },
@@ -45,5 +48,6 @@ export const config = {
     '/admin/:path*',
     '/api/songs/:path*',
     '/api/events',
+    '/api/events/:path*',
   ],
 };

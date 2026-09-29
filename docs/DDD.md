@@ -46,9 +46,9 @@ graph TD
 - **Operações:** Cadastro individual de canções, importação em lote via planilhas (`.xlsx`, `.xls`, `.csv`), consulta alfabética e pesquisa textual por título ou autor.
 
 ### 3.2. Contexto de Celebração e Execução (`Liturgical Celebration Context`)
-- **Responsabilidade:** Orquestrar celebrações, montagem de repertórios sugeridos e recepção de escolhas em tempo real.
+- **Responsabilidade:** Orquestrar celebrações, montagem de repertórios sugeridos, manutenção contínua e recepção de escolhas em tempo real.
 - **Entidades:** `Event`, `EventSong`.
-- **Operações:** Criação de celebração com lista inicial, reordenação de sequência (`▲/▼`), marcação/desmarcação e sincronização atômica.
+- **Operações:** Criação de celebração com lista inicial, listagem e busca de eventos, alteração de título e músicas do evento (adição/remoção/reordenação), exclusão de evento, marcação/desmarcação e sincronização atômica em tempo real.
 
 ---
 
@@ -76,7 +76,8 @@ Event (Aggregate Root)
 **Invariantes do Agregado `Event`:**
 1. Um evento não pode ter a mesma música duplicada (`@@unique([eventId, songId])`).
 2. A ordem de execução `order` deve ser um valor inteiro que reflita a posição sequencial na playlist.
-3. Atualizações de seleção e ordenação em lote são executadas em transação atômica (`prisma.$transaction`).
+3. Atualizações de seleção, adição, remoção e ordenação em lote são executadas em transação atômica (`prisma.$transaction`).
+4. Ao excluir um evento, todos os registros filhos de `EventSong` são excluídos em cascata (`onDelete: Cascade`).
 
 #### **Agregado `Song` (Raiz de Agregação)**
 Mantém os dados fundamentais de uma música no acervo.
@@ -97,15 +98,28 @@ Song (Aggregate Root)
 ```text
 repertorio-catolico/
 ├── app/
-│   ├── admin/page.tsx               # [Apresentação] Interface Desktop/Tablet do Administrador
+│   ├── admin/
+│   │   ├── page.tsx                 # [Apresentação] Painel Admin (Listagem, Edição, Criação, Acervo)
+│   │   └── login/page.tsx           # [Apresentação] Tela de Autenticação Administrativa
 │   ├── evento/[id]/page.tsx         # [Apresentação] Interface Mobile do Diácono (Optimistic UI)
 │   ├── api/
-│   │   ├── songs/route.ts           # [Aplicação] Use Case: Listar e Cadastrar Músicas
-│   │   ├── events/route.ts          # [Aplicação] Use Case: Criar e Listar Celebrações
-│   │   ├── events/[id]/route.ts     # [Aplicação] Use Case: Obter Detalhes da Celebração
-│   │   └── events/[id]/songs/route.ts # [Aplicação] Use Case: Atualizar Ordem e Seleção Atômica
+│   │   ├── auth/
+│   │   │   ├── login/route.ts       # [Aplicação] Use Case: Autenticação de Administrador
+│   │   │   ├── logout/route.ts      # [Aplicação] Use Case: Encerramento de Sessão
+│   │   │   └── session/route.ts     # [Aplicação] Use Case: Verificação de Sessão Ativa
+│   │   ├── songs/
+│   │   │   ├── route.ts             # [Aplicação] Use Case: Listar e Cadastrar Músicas
+│   │   │   └── import/route.ts      # [Aplicação] Use Case: Importação em Lote de Músicas
+│   │   ├── events/
+│   │   │   ├── route.ts             # [Aplicação] Use Case: Criar e Listar Celebrações
+│   │   │   └── [id]/
+│   │   │       ├── route.ts         # [Aplicação] Use Case: Obter, Atualizar (PUT) e Excluir (DELETE) Evento
+│   │   │       └── songs/route.ts   # [Aplicação] Use Case: Atualizar Ordem e Seleção Atômica (Diácono)
+│   └── layout.tsx                   # [Apresentação] Layout Root com Metatags e Estilos Globais
+├── middleware.ts                    # [Infraestrutura / Segurança] Proteção de Rotas e APIs Admin
 ├── lib/
-│   ├── prisma.ts                    # [Infraestrutura] Conexão Singleton com PostgreSQL
+│   ├── auth.ts                      # [Infraestrutura / Segurança] Sessões HMAC-SHA256 e Cookies
+│   ├── prisma.ts                    # [Infraestrutura] Conexão Singleton com PostgreSQL/SQLite
 │   └── utils.ts                     # [Domínio / Utilitários] Sanitização e formatadores
 ├── prisma/
 │   └── schema.prisma                # [Infraestrutura / Persistência] Mapeamento ORM
@@ -125,13 +139,23 @@ sequenceDiagram
     actor Admin as Ministro (Admin)
     actor Diacono as Diácono (Mobile)
     participant API as Next.js API Routes
-    participant DB as PostgreSQL (Prisma)
+    participant DB as Banco de Dados (Prisma)
+
+    Admin->>API: POST /api/auth/login (Autenticação)
+    API-->>Admin: Cookie de Sessão HttpOnly
 
     Admin->>API: POST /api/songs (Cadastra canção no acervo)
     API->>DB: prisma.song.create()
-    Admin->>API: POST /api/events (Cria evento com músicas selecionadas)
+    
+    Admin->>API: POST /api/events (Cria evento com músicas sugeridas)
     API->>DB: prisma.event.create(with songs)
-    API-->>Admin: Retorna URL /evento/[id]
+    API-->>Admin: Retorna Evento Criado
+
+    Admin->>API: PUT /api/events/[id] (Altera título e músicas do evento)
+    API->>DB: prisma.$transaction([update event & recreate eventSongs])
+    DB-->>API: Evento Atualizado
+    API-->>Admin: Retorna Evento Atualizado com Músicas
+
     Admin->>Diacono: Envia link do evento (WhatsApp/Compartilhamento)
 
     Diacono->>API: GET /api/events/[id]
