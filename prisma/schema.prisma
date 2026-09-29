@@ -21,17 +21,19 @@ model Song {
 model Event {
   id        String      @id @default(uuid())
   title     String
+  notes     String?     // Observação geral da celebração
   createdAt DateTime    @default(now())
   songs     EventSong[]
 }
 
-// Tabela relacional com estado de seleção e ordenação
+// Tabela relacional com estado de seleção, ordenação e comentários
 model EventSong {
   id        String   @id @default(uuid())
   eventId   String
   songId    String
   selected  Boolean  @default(false) // Se o diácono marcou
   order     Int      @default(0)     // Posição na lista
+  notes     String?  // Comentário/observação específico para esta música
 
   event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   song      Song     @relation(fields: [songId], references: [id], onDelete: Cascade)

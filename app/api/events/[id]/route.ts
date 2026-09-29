@@ -73,40 +73,51 @@ export async function PUT(request: Request, context: RouteContext) {
     }
 
     const body = await request.json();
-    const { title, songIds, songs } = body;
+    const { title, notes, songIds, songs } = body;
 
     let updatedTitle = existingEvent.title;
     if (typeof title === 'string' && title.trim()) {
       updatedTitle = title.trim();
     }
 
-    let newSongsData: Array<{ songId: string; selected: boolean; order: number }> | null = null;
+    let updatedNotes = existingEvent.notes;
+    if (notes !== undefined) {
+      updatedNotes = typeof notes === 'string' ? notes.trim() || null : null;
+    }
+
+    let newSongsData: Array<{ songId: string; selected: boolean; order: number; notes?: string | null }> | null = null;
 
     if (Array.isArray(songs)) {
       newSongsData = songs.map((s, index) => ({
         songId: s.songId,
         selected: Boolean(s.selected),
         order: typeof s.order === 'number' ? s.order : index,
+        notes: s.notes ? String(s.notes).trim() || null : null,
       }));
     } else if (Array.isArray(songIds)) {
-      const existingSelectionMap = new Map<string, boolean>();
+      const existingMap = new Map<string, { selected: boolean; notes: string | null }>();
       existingEvent.songs.forEach((es) => {
-        existingSelectionMap.set(es.songId, es.selected);
+        existingMap.set(es.songId, { selected: es.selected, notes: es.notes });
       });
 
-      newSongsData = songIds.map((sId: string, index: number) => ({
-        songId: sId,
-        selected: existingSelectionMap.get(sId) ?? false,
-        order: index,
-      }));
+      newSongsData = songIds.map((sId: string, index: number) => {
+        const prev = existingMap.get(sId);
+        return {
+          songId: sId,
+          selected: prev?.selected ?? false,
+          notes: prev?.notes ?? null,
+          order: index,
+        };
+      });
     }
 
-    // Atomic database transaction to update title and songs
+    // Atomic database transaction to update title, notes and songs
     await prisma.$transaction(async (tx) => {
       await tx.event.update({
         where: { id },
         data: {
           title: updatedTitle,
+          notes: updatedNotes,
         },
       });
 
@@ -122,6 +133,7 @@ export async function PUT(request: Request, context: RouteContext) {
               songId: item.songId,
               selected: item.selected,
               order: item.order,
+              notes: item.notes ?? null,
             })),
           });
         }

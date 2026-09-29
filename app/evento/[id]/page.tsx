@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect, useRef, use } from 'react';
 import Link from 'next/link';
 import {
   ChevronUp,
@@ -11,6 +11,12 @@ import {
   AlertCircle,
   Music2,
   Share2,
+  MessageSquare,
+  MessageSquarePlus,
+  X,
+  FileText,
+  Clock,
+  Trash2,
 } from 'lucide-react';
 
 interface Song {
@@ -26,12 +32,14 @@ interface EventSongItem {
   songId: string;
   selected: boolean;
   order: number;
+  notes?: string | null;
   song: Song;
 }
 
 interface EventData {
   id: string;
   title: string;
+  notes?: string | null;
   createdAt: string;
   songs: EventSongItem[];
 }
@@ -46,6 +54,7 @@ export default function EventMobilePage({ params }: PageProps) {
 
   const [event, setEvent] = useState<EventData | null>(null);
   const [songsList, setSongsList] = useState<EventSongItem[]>([]);
+  const [generalNotes, setGeneralNotes] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -53,6 +62,15 @@ export default function EventMobilePage({ params }: PageProps) {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [activeFilter, setActiveFilter] = useState<'all' | 'selected'>('all');
   const [copiedShare, setCopiedShare] = useState(false);
+
+  // Song comment modal state
+  const [commentModalSong, setCommentModalSong] = useState<EventSongItem | null>(null);
+  const [currentSongComment, setCurrentSongComment] = useState<string>('');
+  const [songCommentSyncStatus, setSongCommentSyncStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Debounce timer refs
+  const generalNotesTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const songNotesTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch Event data
   const fetchEventData = async () => {
@@ -68,6 +86,7 @@ export default function EventMobilePage({ params }: PageProps) {
       }
       const data: EventData = await res.json();
       setEvent(data);
+      setGeneralNotes(data.notes || '');
       // Sort by order ascending
       const sorted = [...(data.songs || [])].sort((a, b) => a.order - b.order);
       setSongsList(sorted);
@@ -85,17 +104,25 @@ export default function EventMobilePage({ params }: PageProps) {
     }
   }, [eventId]);
 
-  // Synchronize state with backend
-  const triggerAutoSave = async (updatedList: EventSongItem[], previousList: EventSongItem[]) => {
+  // Synchronize state with backend (songs array and optional general notes)
+  const triggerAutoSave = async (
+    updatedList: EventSongItem[],
+    previousList: EventSongItem[],
+    notesToSave?: string
+  ) => {
     setSyncStatus('saving');
 
     try {
-      const payload = updatedList.map((item, index) => ({
-        id: item.id,
-        songId: item.songId,
-        selected: item.selected,
-        order: index,
-      }));
+      const payload = {
+        notes: notesToSave !== undefined ? notesToSave : generalNotes,
+        songs: updatedList.map((item, index) => ({
+          id: item.id,
+          songId: item.songId,
+          selected: item.selected,
+          order: index,
+          notes: item.notes || null,
+        })),
+      };
 
       const res = await fetch(`/api/events/${eventId}/songs`, {
         method: 'PUT',
@@ -119,6 +146,38 @@ export default function EventMobilePage({ params }: PageProps) {
     }
   };
 
+  // Handle General Notes Change with Auto-Save Debounce
+  const handleGeneralNotesChange = (newVal: string) => {
+    setGeneralNotes(newVal);
+    setSyncStatus('saving');
+
+    if (generalNotesTimeoutRef.current) {
+      clearTimeout(generalNotesTimeoutRef.current);
+    }
+
+    generalNotesTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/events/${eventId}/songs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notes: newVal }),
+        });
+
+        if (!res.ok) {
+          throw new Error('Falha ao salvar observação');
+        }
+
+        setSyncStatus('saved');
+        setTimeout(() => {
+          setSyncStatus('idle');
+        }, 2500);
+      } catch (err) {
+        console.error('Erro ao salvar observação geral:', err);
+        setSyncStatus('error');
+      }
+    }, 800);
+  };
+
   // Toggle Song Selection (Optimistic Update)
   const handleToggleSelect = (index: number) => {
     const previous = [...songsList];
@@ -129,10 +188,7 @@ export default function EventMobilePage({ params }: PageProps) {
       return item;
     });
 
-    // Optimistic state update
     setSongsList(updated);
-
-    // Background sync
     triggerAutoSave(updated, previous);
   };
 
@@ -147,9 +203,7 @@ export default function EventMobilePage({ params }: PageProps) {
     updated[index] = updated[index - 1];
     updated[index - 1] = temp;
 
-    // Recalculate order indices
     const reordered = updated.map((item, idx) => ({ ...item, order: idx }));
-
     setSongsList(reordered);
     triggerAutoSave(reordered, previous);
   };
@@ -165,11 +219,86 @@ export default function EventMobilePage({ params }: PageProps) {
     updated[index] = updated[index + 1];
     updated[index + 1] = temp;
 
-    // Recalculate order indices
     const reordered = updated.map((item, idx) => ({ ...item, order: idx }));
-
     setSongsList(reordered);
     triggerAutoSave(reordered, previous);
+  };
+
+  // Open Song Comment Popup
+  const handleOpenSongComment = (e: React.MouseEvent, item: EventSongItem) => {
+    e.stopPropagation();
+    setCommentModalSong(item);
+    setCurrentSongComment(item.notes || '');
+    setSongCommentSyncStatus('idle');
+  };
+
+  // Close Song Comment Popup
+  const handleCloseSongComment = () => {
+    setCommentModalSong(null);
+    setSongCommentSyncStatus('idle');
+  };
+
+  // Update Song Comment with Auto-Save Debounce
+  const handleSongCommentChange = (newVal: string) => {
+    setCurrentSongComment(newVal);
+    setSongCommentSyncStatus('saving');
+
+    if (!commentModalSong) return;
+
+    const songId = commentModalSong.songId;
+
+    // Optimistically update songsList
+    const updatedList = songsList.map((s) => {
+      if (s.songId === songId) {
+        return { ...s, notes: newVal.trim() || null };
+      }
+      return s;
+    });
+    setSongsList(updatedList);
+
+    if (songNotesTimeoutRef.current) {
+      clearTimeout(songNotesTimeoutRef.current);
+    }
+
+    songNotesTimeoutRef.current = setTimeout(async () => {
+      try {
+        const itemToUpdate = updatedList.find((s) => s.songId === songId);
+        if (!itemToUpdate) return;
+
+        const res = await fetch(`/api/events/${eventId}/songs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            songs: [
+              {
+                id: itemToUpdate.id,
+                songId: itemToUpdate.songId,
+                selected: itemToUpdate.selected,
+                order: itemToUpdate.order,
+                notes: newVal.trim() || null,
+              },
+            ],
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error('Falha ao salvar comentário da música');
+        }
+
+        setSongCommentSyncStatus('saved');
+        setTimeout(() => {
+          setSongCommentSyncStatus('idle');
+        }, 2000);
+      } catch (err) {
+        console.error('Erro ao sincronizar comentário da música:', err);
+        setSongCommentSyncStatus('idle');
+      }
+    }, 600);
+  };
+
+  // Clear Song Comment
+  const handleClearSongComment = () => {
+    handleSongCommentChange('');
   };
 
   const handleShareLink = () => {
@@ -220,9 +349,9 @@ export default function EventMobilePage({ params }: PageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 pb-16 font-sans">
+    <div className="min-h-screen bg-slate-100 text-slate-900 pb-20 font-sans">
       {/* Mobile Sticky Header */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-sm">
         <div className="max-w-md mx-auto px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 overflow-hidden">
@@ -310,10 +439,45 @@ export default function EventMobilePage({ params }: PageProps) {
         </div>
       </header>
 
-      {/* Main Song List - Mobile Optimized Container */}
-      <main className="max-w-md mx-auto px-4 pt-4 space-y-3">
+      {/* Main Content Area */}
+      <main className="max-w-md mx-auto px-4 pt-3.5 space-y-3.5">
+        {/* CAIXA DE OBSERVAÇÃO GERAL DA CELEBRAÇÃO (ACIMA DA SELEÇÃO DE MÚSICAS) */}
+        <section className="bg-white rounded-2xl border border-amber-200/90 shadow-sm p-3.5 space-y-2 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-amber-800">
+              <FileText className="w-4 h-4 text-amber-600" />
+              <label htmlFor="general-notes" className="text-xs font-bold uppercase tracking-wider text-slate-800">
+                Observações Gerais da Celebração
+              </label>
+            </div>
+            {syncStatus === 'saving' && (
+              <span className="text-[10px] text-amber-600 font-medium animate-pulse">
+                Salvando...
+              </span>
+            )}
+            {syncStatus === 'saved' && (
+              <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-0.5">
+                <Check className="w-3 h-3" /> Salvo
+              </span>
+            )}
+          </div>
+
+          <textarea
+            id="general-notes"
+            rows={2}
+            value={generalNotes}
+            onChange={(e) => handleGeneralNotesChange(e.target.value)}
+            placeholder="Digite orientações gerais para o ministério de música (ex: momento de silêncio após a homilia, oração pelos enfermos, avisos)..."
+            className="w-full bg-amber-50/40 border border-amber-200/70 rounded-xl p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition resize-y min-h-[64px]"
+          />
+          <p className="text-[10px] text-slate-400">
+            * Salvo automaticamente. Visível para toda a equipe e ministério de música.
+          </p>
+        </section>
+
+        {/* SONG LIST CONTAINER */}
         {songsList.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm mt-4">
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm mt-2">
             <Music2 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-700">Nenhuma música sugerida</p>
             <p className="text-xs text-slate-400 mt-1">
@@ -321,7 +485,7 @@ export default function EventMobilePage({ params }: PageProps) {
             </p>
           </div>
         ) : displayedSongs.length === 0 && activeFilter === 'selected' ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm mt-4">
+          <div className="bg-white rounded-2xl p-8 text-center border border-slate-200 shadow-sm mt-2">
             <Check className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-slate-700">Nenhuma música marcada ainda</p>
             <p className="text-xs text-slate-400 mt-1">
@@ -330,24 +494,24 @@ export default function EventMobilePage({ params }: PageProps) {
           </div>
         ) : (
           displayedSongs.map((item) => {
-            // Find true index in master songsList for reordering operations
             const trueIndex = songsList.findIndex((s) => s.id === item.id);
             const isFirst = trueIndex === 0;
             const isLast = trueIndex === songsList.length - 1;
+            const hasComment = Boolean(item.notes && item.notes.trim());
 
             return (
               <div
                 key={item.id}
                 onClick={() => handleToggleSelect(trueIndex)}
-                className={`group relative rounded-2xl border-2 p-3.5 transition-all duration-150 cursor-pointer shadow-sm select-none active:scale-[0.98] ${
+                className={`group relative rounded-2xl border-2 p-3.5 transition-all duration-150 cursor-pointer shadow-sm select-none active:scale-[0.99] space-y-2.5 ${
                   item.selected
                     ? 'bg-blue-50/90 border-blue-600 shadow-blue-500/10 ring-1 ring-blue-500/30'
                     : 'bg-white border-slate-200 hover:border-slate-300'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start gap-3">
                   {/* Sequence Position & Checkbox */}
-                  <div className="flex flex-col items-center gap-1 shrink-0">
+                  <div className="flex flex-col items-center gap-1 shrink-0 pt-0.5">
                     <span
                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
                         item.selected
@@ -385,20 +549,45 @@ export default function EventMobilePage({ params }: PageProps) {
                       </p>
                     )}
 
-                    {/* YouTube Action Button */}
-                    {item.song.youtube && (
-                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                    {/* Action Bar (YouTube + Comment Button) */}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {/* YouTube Button */}
+                      {item.song.youtube && (
                         <a
                           href={item.song.youtube}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200/80 text-[11px] font-semibold transition active:scale-95 shadow-2xs"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200/80 text-[11px] font-semibold transition active:scale-95 shadow-2xs"
                         >
                           <Youtube className="w-3.5 h-3.5 text-red-600" />
-                          <span>▶ YouTube</span>
+                          <span>Vídeo</span>
                         </a>
-                      </div>
-                    )}
+                      )}
+
+                      {/* Comment Trigger Button */}
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenSongComment(e, item)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition active:scale-95 shadow-2xs ${
+                          hasComment
+                            ? 'bg-amber-100 hover:bg-amber-200/90 text-amber-900 border-amber-300 ring-1 ring-amber-400/30'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                        }`}
+                        title={hasComment ? 'Ver/editar comentário desta música' : 'Adicionar comentário a esta música'}
+                      >
+                        {hasComment ? (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5 text-amber-700 fill-amber-500/20" />
+                            <span>Comentário</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquarePlus className="w-3.5 h-3.5 text-slate-500" />
+                            <span>+ Comentário</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {/* Reordering Controls (Up / Down) */}
@@ -427,14 +616,116 @@ export default function EventMobilePage({ params }: PageProps) {
                     </button>
                   </div>
                 </div>
+
+                {/* Inline Comment Preview (if available) */}
+                {hasComment && (
+                  <div
+                    onClick={(e) => handleOpenSongComment(e, item)}
+                    className="mt-1 bg-amber-50/80 border border-amber-200/70 rounded-xl p-2 text-xs text-amber-950 flex items-start gap-1.5 cursor-pointer hover:bg-amber-100/70 transition"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="line-clamp-2 italic text-[11px] leading-relaxed flex-1">
+                      &quot;{item.notes}&quot;
+                    </p>
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </main>
 
+      {/* POPUP / MODAL: COMENTÁRIO POR MÚSICA */}
+      {commentModalSong && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white border border-slate-200 rounded-3xl sm:rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 animate-in slide-in-from-bottom-4 sm:slide-in-from-bottom-0 duration-200">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 line-clamp-1">
+                    Comentário da Música
+                  </h3>
+                  <p className="text-xs text-slate-500 line-clamp-1">
+                    {commentModalSong.song.title}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleCloseSongComment}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <label htmlFor="song-comment-input" className="font-semibold text-slate-700">
+                  Instruções ou Observações para os músicos:
+                </label>
+                {songCommentSyncStatus === 'saving' && (
+                  <span className="text-[10px] text-amber-600 font-medium animate-pulse">
+                    Salvando...
+                  </span>
+                )}
+                {songCommentSyncStatus === 'saved' && (
+                  <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-0.5">
+                    <Check className="w-3 h-3" /> Salvo
+                  </span>
+                )}
+              </div>
+
+              <textarea
+                id="song-comment-input"
+                rows={4}
+                autoFocus
+                value={currentSongComment}
+                onChange={(e) => handleSongCommentChange(e.target.value)}
+                placeholder="Ex: Entrar suave no violão, repetir refrão 2x no final, Tom: Sol Maior..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition"
+              />
+
+              <p className="text-[10px] text-slate-400">
+                * O comentário é salvo automaticamente enquanto você digita e fica visível para todos.
+              </p>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+              {currentSongComment ? (
+                <button
+                  type="button"
+                  onClick={handleClearSongComment}
+                  className="px-3 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-xs font-semibold flex items-center gap-1 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Limpar</span>
+                </button>
+              ) : (
+                <div />
+              )}
+
+              <button
+                type="button"
+                onClick={handleCloseSongComment}
+                className="px-5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs shadow-md transition active:scale-95 flex items-center gap-1.5"
+              >
+                <Check className="w-4 h-4 stroke-[3]" />
+                <span>Concluído</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Bottom Sticky Floating Helper */}
-      <footer className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-slate-200 py-2.5 px-4 z-30">
+      <footer className="fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-slate-200 py-2.5 px-4 z-20">
         <div className="max-w-md mx-auto flex items-center justify-between text-xs text-slate-600">
           <div className="flex items-center gap-2 font-medium">
             <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span>

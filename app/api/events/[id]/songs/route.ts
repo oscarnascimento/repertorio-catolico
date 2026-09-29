@@ -10,6 +10,7 @@ interface UpdateSongItem {
   songId?: string;
   selected: boolean;
   order: number;
+  notes?: string | null;
 }
 
 export async function PUT(request: Request, context: RouteContext) {
@@ -30,9 +31,16 @@ export async function PUT(request: Request, context: RouteContext) {
       ? body.songs
       : [];
 
-    if (!songsList.length && !Array.isArray(body) && !Array.isArray(body?.songs)) {
+    const hasNotesField = !Array.isArray(body) && body?.notes !== undefined;
+    const eventGeneralNotes = hasNotesField
+      ? typeof body.notes === 'string'
+        ? body.notes.trim() || null
+        : null
+      : undefined;
+
+    if (!songsList.length && !Array.isArray(body) && !Array.isArray(body?.songs) && !hasNotesField) {
       return NextResponse.json(
-        { error: 'Lista de músicas inválida para atualização.' },
+        { error: 'Nenhum dado válido para atualização.' },
         { status: 400 }
       );
     }
@@ -49,45 +57,61 @@ export async function PUT(request: Request, context: RouteContext) {
       );
     }
 
-    // Execute atomic update across all EventSong records
-    const transactionOperations = songsList.map((item) => {
-      if (item.id) {
-        return prisma.eventSong.update({
-          where: {
-            id: item.id,
-          },
+    // Execute atomic update across all EventSong records and Event notes
+    await prisma.$transaction(async (tx) => {
+      // 1. Update general event notes if passed
+      if (eventGeneralNotes !== undefined) {
+        await tx.event.update({
+          where: { id: eventId },
           data: {
-            selected: Boolean(item.selected),
-            order: Number(item.order),
+            notes: eventGeneralNotes,
           },
         });
-      } else if (item.songId) {
-        return prisma.eventSong.upsert({
-          where: {
-            eventId_songId: {
+      }
+
+      // 2. Update song items
+      for (const item of songsList) {
+        const itemNotes = item.notes !== undefined
+          ? (typeof item.notes === 'string' ? item.notes.trim() || null : null)
+          : undefined;
+
+        if (item.id) {
+          await tx.eventSong.update({
+            where: {
+              id: item.id,
+            },
+            data: {
+              selected: Boolean(item.selected),
+              order: Number(item.order),
+              ...(itemNotes !== undefined ? { notes: itemNotes } : {}),
+            },
+          });
+        } else if (item.songId) {
+          await tx.eventSong.upsert({
+            where: {
+              eventId_songId: {
+                eventId,
+                songId: item.songId,
+              },
+            },
+            update: {
+              selected: Boolean(item.selected),
+              order: Number(item.order),
+              ...(itemNotes !== undefined ? { notes: itemNotes } : {}),
+            },
+            create: {
               eventId,
               songId: item.songId,
+              selected: Boolean(item.selected),
+              order: Number(item.order),
+              notes: itemNotes ?? null,
             },
-          },
-          update: {
-            selected: Boolean(item.selected),
-            order: Number(item.order),
-          },
-          create: {
-            eventId,
-            songId: item.songId,
-            selected: Boolean(item.selected),
-            order: Number(item.order),
-          },
-        });
-      } else {
-        throw new Error('Identificador da música (id ou songId) não fornecido');
+          });
+        }
       }
     });
 
-    await prisma.$transaction(transactionOperations);
-
-    // Fetch updated event songs
+    // Fetch updated event
     const updatedEvent = await prisma.event.findUnique({
       where: { id: eventId },
       include: {
@@ -104,15 +128,15 @@ export async function PUT(request: Request, context: RouteContext) {
 
     return NextResponse.json(
       {
-        message: 'Repertório atualizado com sucesso.',
+        message: 'Repertório e observações atualizados com sucesso.',
         event: updatedEvent,
       },
       { status: 200 }
     );
   } catch (error) {
-    console.error('Error updating event songs:', error);
+    console.error('Error updating event songs and notes:', error);
     return NextResponse.json(
-      { error: 'Falha ao sincronizar músicas do evento.' },
+      { error: 'Falha ao sincronizar dados do evento.' },
       { status: 500 }
     );
   }
