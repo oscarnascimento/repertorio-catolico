@@ -25,7 +25,9 @@ import {
   FileText,
   X,
   CheckCircle2,
+  LogOut,
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { cleanYoutubeUrl, formatDateTime } from '@/lib/utils';
 
@@ -61,10 +63,24 @@ interface ParsedImportRow {
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [songs, setSongs] = useState<Song[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loadingSongs, setLoadingSongs] = useState(true);
   const [loadingEvents, setLoadingEvents] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Erro ao sair:', err);
+    } finally {
+      router.push('/admin/login');
+      router.refresh();
+    }
+  };
 
   // New Song Form State
   const [newTitle, setNewTitle] = useState('');
@@ -475,6 +491,16 @@ export default function AdminPage() {
               className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 transition"
             >
               <RefreshCw className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={handleLogout}
+              disabled={loggingOut}
+              title="Sair do painel"
+              className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 disabled:opacity-50"
+            >
+              <LogOut className="w-4 h-4 text-rose-400" />
+              <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </div>

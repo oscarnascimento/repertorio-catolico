@@ -10,10 +10,14 @@ export async function GET() {
     });
 
     return NextResponse.json(songs, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching songs:', error);
     return NextResponse.json(
-      { error: 'Falha ao buscar acervo de músicas.' },
+      {
+        error: 'Falha ao buscar acervo de músicas.',
+        details: error?.message || String(error),
+        code: error?.code,
+      },
       { status: 500 }
     );
   }

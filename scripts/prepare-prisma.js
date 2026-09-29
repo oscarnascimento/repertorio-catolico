@@ -33,7 +33,7 @@ if (fs.existsSync(schemaPath)) {
       `datasource db {\n  provider = "${targetProvider}"`
     );
     fs.writeFileSync(schemaPath, schema, 'utf8');
-    console.log(`[Prisma Auto-Config] Configurado para ${targetProvider.toUpperCase()} (${isPostgres ? 'Produção / Supabase' : 'Local / SQLite'})`);
+    console.log(`[Prisma Auto-Config] Configurado para ${targetProvider.toUpperCase()} (${targetProvider === 'postgresql' ? 'Produção / Supabase' : 'Local / SQLite'})`);
   } else {
     console.log(`[Prisma Auto-Config] Já configurado para ${targetProvider.toUpperCase()}`);
   }
