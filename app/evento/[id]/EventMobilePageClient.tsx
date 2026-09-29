@@ -12,7 +12,6 @@ import {
   Music2,
   Share2,
   MessageSquare,
-  MessageSquarePlus,
   X,
   FileText,
   Trash2,
@@ -368,9 +367,11 @@ export default function EventMobilePageClient({
               <button
                 onClick={handleShareWhatsApp}
                 title="Compartilhar seleção no WhatsApp"
-                className="p-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition active:scale-95 border border-emerald-200"
+                className="p-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white transition active:scale-95 border border-emerald-400 shadow-sm shadow-emerald-500/30"
               >
-                <MessageSquarePlus className="w-4 h-4" />
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+                  <path d="M12.04 2C6.61 2 2.2 6.04 2.2 11.11c0 1.8.53 3.55 1.52 5.06L2 22l5.97-1.77a9.1 9.1 0 0 0 4.07 1.02h.01c5.43 0 9.84-4.04 9.84-9.11S17.47 2 12.04 2Zm5.3 12.95c-.22.62-.98 1.14-1.62 1.29-.44.08-.97.09-2.88-.58-2.45-.88-4.04-3.18-4.16-3.33-.12-.15-1.01-1.34-1.01-2.56 0-1.22.63-1.82.86-2.07a.59.59 0 0 1 .43-.2c.1 0 .2 0 .28.01.1.01.23.04.34.27.12.25.4 1 .44 1.08.04.08.08.2-.01.32-.06.12-.19.31-.28.42-.09.1-.2.23-.09.46.11.23.5 1.02.98 1.66.67.62 1.24.82 1.47.91.23.09.37.08.5-.05.14-.13.6-.7.76-.94.15-.24.31-.2.52-.12.21.08 1.33.63 1.56.74.23.11.38.16.44.25.06.09.06.52-.17 1.14Z"/>
+                </svg>
               </button>
 
               <button
