@@ -577,6 +577,14 @@ export default function AdminPage() {
     }
   };
 
+  const addAllSongsToEvent = () => {
+    setSelectedSongIds((prev) => Array.from(new Set([...prev, ...songs.map((song) => song.id)])));
+  };
+
+  const clearAllSongsFromEvent = () => {
+    setSelectedSongIds([]);
+  };
+
   // Handle Create Event
   const handleCreateEvent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1157,21 +1165,41 @@ export default function AdminPage() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between gap-2 mb-2">
                   <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                     Músicas Sugeridas ({selectedSongIds.length} selecionada{selectedSongIds.length === 1 ? '' : 's'})
                   </label>
-                  {filteredSongsForEvent.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={selectAllFilteredSongs}
-                      className="text-xs text-amber-400 hover:text-amber-300 font-medium transition"
-                    >
-                      {filteredSongsForEvent.every((s) => selectedSongIds.includes(s.id))
-                        ? 'Desmarcar visíveis'
-                        : 'Selecionar visíveis'}
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {songs.length > 0 && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={addAllSongsToEvent}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition"
+                        >
+                          Adicionar todas
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearAllSongsFromEvent}
+                          className="text-[10px] font-semibold px-2 py-1 rounded-md border border-rose-500/40 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20 transition"
+                        >
+                          Limpar tudo
+                        </button>
+                      </>
+                    )}
+                    {filteredSongsForEvent.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={selectAllFilteredSongs}
+                        className="text-[10px] font-semibold px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition"
+                      >
+                        {filteredSongsForEvent.every((s) => selectedSongIds.includes(s.id))
+                          ? 'Desmarcar visíveis'
+                          : 'Selecionar visíveis'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Search inside event picker */}

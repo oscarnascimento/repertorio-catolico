@@ -98,6 +98,31 @@ export default function EditEventPage() {
     });
   }, [catalog, catalogSearch]);
 
+  const handleAddAllSongs = () => {
+    setSongsList((prev) => {
+      const existingIds = new Set(prev.map((item) => item.songId));
+      const additions: EventSongItem[] = [];
+
+      catalog.forEach((song) => {
+        if (!existingIds.has(song.id)) {
+          additions.push({
+            songId: song.id,
+            selected: false,
+            order: prev.length + additions.length,
+            notes: null,
+            song,
+          });
+        }
+      });
+
+      return [...prev, ...additions].map((item, index) => ({ ...item, order: index }));
+    });
+  };
+
+  const handleClearAllSongs = () => {
+    setSongsList([]);
+  };
+
   const handleAddSong = (song: Song) => {
     if (songsList.some((item) => item.songId === song.id)) {
       return;
@@ -266,10 +291,33 @@ export default function EditEventPage() {
               />
             </div>
 
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-300">
                 Músicas do evento
               </h2>
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                {catalog.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleAddAllSongs}
+                      className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/20"
+                    >
+                      Adicionar todas
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAllSongs}
+                      className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-2 py-1 text-[10px] font-bold text-rose-200 hover:bg-rose-500/20"
+                    >
+                      Limpar tudo
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="mb-3 flex items-center justify-end">
               <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-bold text-amber-200">
                 {songsList.length} itens
               </span>
