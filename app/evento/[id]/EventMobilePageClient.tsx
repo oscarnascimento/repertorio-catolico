@@ -12,6 +12,7 @@ import {
   Music2,
   Share2,
   MessageSquare,
+  MessageSquarePlus,
   X,
   FileText,
   Trash2,

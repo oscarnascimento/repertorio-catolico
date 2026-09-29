@@ -6,14 +6,40 @@
 export const ADMIN_COOKIE_NAME = 'admin_session';
 const DEFAULT_SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+const DEVELOPMENT_SESSION_SECRET = 'development-session-secret-change-me-32chars';
+const DEVELOPMENT_ADMIN_PASSWORD = 'dev-admin-password-change-me';
+
+function getSessionSecret(): string {
+  const value = process.env.ADMIN_SESSION_SECRET?.trim();
+  if (value) {
+    return value;
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return DEVELOPMENT_SESSION_SECRET;
+  }
+
+  throw new Error('ADMIN_SESSION_SECRET is required in production.');
+}
+
+function getAdminPassword(): string {
+  const value = process.env.ADMIN_PASSWORD?.trim();
+  if (value) {
+    return value;
+  }
+
+  if (process.env.NODE_ENV !== 'production') {
+    return DEVELOPMENT_ADMIN_PASSWORD;
+  }
+
+  throw new Error('ADMIN_PASSWORD is required in production.');
+}
+
 /**
- * Derives a CryptoKey for HMAC-SHA256 from the session secret or admin password.
+ * Derives a CryptoKey for HMAC-SHA256 from the session secret.
  */
 async function getHmacKey(): Promise<CryptoKey> {
-  const secret =
-    process.env.ADMIN_SESSION_SECRET ||
-    process.env.ADMIN_PASSWORD ||
-    'fallback-dev-secret-key-32-chars-min!!';
+  const secret = getSessionSecret();
   const encoder = new TextEncoder();
   const keyData = encoder.encode(secret);
 
@@ -137,7 +163,7 @@ export async function verifySessionToken(token?: string | null): Promise<boolean
  * Validates the admin password in constant time to prevent timing attacks.
  */
 export async function verifyAdminPassword(inputPassword: string): Promise<boolean> {
-  const expectedPassword = process.env.ADMIN_PASSWORD || 'admin';
+  const expectedPassword = getAdminPassword();
   if (!inputPassword || typeof inputPassword !== 'string') return false;
 
   const encoder = new TextEncoder();
