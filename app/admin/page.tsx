@@ -33,6 +33,8 @@ import {
   Plus,
   ArrowUpDown,
   Filter,
+  MessageSquare,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
@@ -51,12 +53,14 @@ interface EventSongItem {
   songId: string;
   selected: boolean;
   order: number;
+  notes?: string | null;
   song: Song;
 }
 
 interface EventItem {
   id: string;
   title: string;
+  notes?: string | null;
   createdAt: string;
   songs: EventSongItem[];
 }
@@ -101,6 +105,7 @@ export default function AdminPage() {
 
   // New Event Form State
   const [eventTitle, setEventTitle] = useState('');
+  const [eventNotes, setEventNotes] = useState('');
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
   const [creatingEvent, setCreatingEvent] = useState(false);
   const [eventFilterSearch, setEventFilterSearch] = useState('');
@@ -113,18 +118,21 @@ export default function AdminPage() {
   // Event Editing Modal State
   const [editingEvent, setEditingEvent] = useState<EventItem | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const [editNotes, setEditNotes] = useState('');
   const [editSongsList, setEditSongsList] = useState<
     Array<{
       id?: string;
       songId: string;
       selected: boolean;
       order: number;
+      notes?: string | null;
       song: Song;
     }>
   >([]);
   const [editCatalogSearch, setEditCatalogSearch] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [editFeedback, setEditFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [activeCommentSongId, setActiveCommentSongId] = useState<string | null>(null);
 
   // Event Deletion Confirmation State
   const [eventToDelete, setEventToDelete] = useState<EventItem | null>(null);
@@ -186,16 +194,19 @@ export default function AdminPage() {
   const handleOpenEdit = (event: EventItem) => {
     setEditingEvent(event);
     setEditTitle(event.title);
+    setEditNotes(event.notes || '');
     const sorted = [...(event.songs || [])].sort((a, b) => a.order - b.order);
     setEditSongsList(sorted);
     setEditCatalogSearch('');
     setEditFeedback(null);
+    setActiveCommentSongId(null);
   };
 
   // Close Edit Modal
   const handleCloseEdit = () => {
     setEditingEvent(null);
     setEditFeedback(null);
+    setActiveCommentSongId(null);
   };
 
   // Add a song from catalog to the event currently being edited
@@ -207,6 +218,7 @@ export default function AdminPage() {
       songId: song.id,
       selected: false,
       order: editSongsList.length,
+      notes: null,
       song,
     };
     setEditSongsList((prev) => [...prev, newItem]);
@@ -256,6 +268,18 @@ export default function AdminPage() {
     });
   };
 
+  // Update song comment inside editor
+  const handleSongNoteChangeInEdit = (songId: string, newNote: string) => {
+    setEditSongsList((prev) => {
+      return prev.map((item) => {
+        if (item.songId === songId) {
+          return { ...item, notes: newNote.trim() || null };
+        }
+        return item;
+      });
+    });
+  };
+
   // Save changes to the edited event
   const handleSaveEditEvent = async () => {
     if (!editingEvent) return;
@@ -270,10 +294,12 @@ export default function AdminPage() {
     try {
       const payload = {
         title: editTitle.trim(),
+        notes: editNotes.trim() || null,
         songs: editSongsList.map((item, index) => ({
           songId: item.songId,
           selected: item.selected,
           order: index,
+          notes: item.notes || null,
         })),
       };
 
@@ -586,6 +612,7 @@ export default function AdminPage() {
       setEvents((prev) => [newEvent, ...prev]);
       setCreatedEventModal({ id: newEvent.id, title: newEvent.title });
       setEventTitle('');
+      setEventNotes('');
       setSelectedSongIds([]);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Erro ao criar evento';
@@ -634,10 +661,12 @@ export default function AdminPage() {
     return events.filter(
       (evt) =>
         evt.title.toLowerCase().includes(search) ||
+        (evt.notes && evt.notes.toLowerCase().includes(search)) ||
         evt.songs.some(
           (s) =>
             s.song.title.toLowerCase().includes(search) ||
-            (s.song.artist && s.song.artist.toLowerCase().includes(search))
+            (s.song.artist && s.song.artist.toLowerCase().includes(search)) ||
+            (s.notes && s.notes.toLowerCase().includes(search))
         )
     );
   }, [events, eventListSearch]);
@@ -856,7 +885,7 @@ export default function AdminPage() {
                 <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Buscar evento por título ou música..."
+                  placeholder="Buscar por título, observação ou música..."
                   value={eventListSearch}
                   onChange={(e) => setEventListSearch(e.target.value)}
                   className="w-full bg-slate-900/90 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
@@ -921,6 +950,7 @@ export default function AdminPage() {
                   const selectedCount = event.songs?.filter((s) => s.selected).length || 0;
                   const totalSongs = event.songs?.length || 0;
                   const percent = totalSongs > 0 ? Math.round((selectedCount / totalSongs) * 100) : 0;
+                  const hasNotes = Boolean(event.notes && event.notes.trim());
 
                   return (
                     <div
@@ -958,6 +988,16 @@ export default function AdminPage() {
                           </div>
                         </div>
 
+                        {/* Event General Notes Preview if present */}
+                        {hasNotes && (
+                          <div className="mb-3 bg-amber-950/30 border border-amber-500/30 rounded-xl p-2.5 text-xs text-amber-200/90 flex items-start gap-2">
+                            <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                            <p className="line-clamp-2 leading-relaxed text-[11px] italic">
+                              &quot;{event.notes}&quot;
+                            </p>
+                          </div>
+                        )}
+
                         {/* Progress Bar */}
                         <div className="w-full bg-slate-900/80 h-1.5 rounded-full overflow-hidden mb-3.5 border border-slate-800">
                           <div
@@ -979,41 +1019,56 @@ export default function AdminPage() {
                               Nenhuma música vinculada a este evento. Clique em &quot;Editar&quot; para adicionar.
                             </p>
                           ) : (
-                            event.songs.map((es, idx) => (
-                              <div
-                                key={es.id || idx}
-                                className={`flex items-center justify-between gap-2 p-1.5 rounded-lg text-xs transition ${
-                                  es.selected
-                                    ? 'bg-emerald-950/30 text-emerald-200 font-medium border border-emerald-500/20'
-                                    : 'text-slate-300 hover:bg-slate-800/60'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 truncate">
-                                  <span
-                                    className={`w-4 h-4 rounded text-[10px] flex items-center justify-center shrink-0 font-bold ${
-                                      es.selected
-                                        ? 'bg-emerald-500 text-slate-950'
-                                        : 'bg-slate-800 text-slate-400'
-                                    }`}
-                                  >
-                                    {es.selected ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
-                                  </span>
-                                  <span className="truncate">{es.song?.title || 'Música'}</span>
-                                  {es.song?.artist && (
-                                    <span className="text-slate-500 text-[10px] truncate hidden sm:inline">
-                                      ({es.song.artist})
+                            event.songs.map((es, idx) => {
+                              const hasSongComment = Boolean(es.notes && es.notes.trim());
+                              return (
+                                <div
+                                  key={es.id || idx}
+                                  className={`flex items-center justify-between gap-2 p-1.5 rounded-lg text-xs transition ${
+                                    es.selected
+                                      ? 'bg-emerald-950/30 text-emerald-200 font-medium border border-emerald-500/20'
+                                      : 'text-slate-300 hover:bg-slate-800/60'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 truncate">
+                                    <span
+                                      className={`w-4 h-4 rounded text-[10px] flex items-center justify-center shrink-0 font-bold ${
+                                        es.selected
+                                          ? 'bg-emerald-500 text-slate-950'
+                                          : 'bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      {es.selected ? <Check className="w-3 h-3 stroke-[3]" /> : idx + 1}
                                     </span>
-                                  )}
-                                </div>
+                                    <span className="truncate">{es.song?.title || 'Música'}</span>
+                                    {es.song?.artist && (
+                                      <span className="text-slate-500 text-[10px] truncate hidden sm:inline">
+                                        ({es.song.artist})
+                                      </span>
+                                    )}
+                                  </div>
 
-                                {es.song?.youtube && (
-                                  <span className="text-[10px] text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded border border-red-800/30 shrink-0 flex items-center gap-1">
-                                    <Youtube className="w-2.5 h-2.5" />
-                                    Vídeo
-                                  </span>
-                                )}
-                              </div>
-                            ))
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {hasSongComment && (
+                                      <span
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-300 border border-amber-800/40 flex items-center gap-1"
+                                        title={`Comentário: "${es.notes}"`}
+                                      >
+                                        <MessageSquare className="w-2.5 h-2.5 text-amber-400" />
+                                        <span className="hidden sm:inline">Nota</span>
+                                      </span>
+                                    )}
+
+                                    {es.song?.youtube && (
+                                      <span className="text-[10px] text-red-400 bg-red-950/40 px-1.5 py-0.5 rounded border border-red-800/30 shrink-0 flex items-center gap-1">
+                                        <Youtube className="w-2.5 h-2.5" />
+                                        Vídeo
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })
                           )}
                         </div>
                       </div>
@@ -1024,7 +1079,7 @@ export default function AdminPage() {
                         <button
                           onClick={() => handleOpenEdit(event)}
                           className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-500/40 text-xs font-bold flex items-center justify-center gap-1.5 transition active:scale-95 shadow-sm"
-                          title="Alterar músicas e título deste evento"
+                          title="Alterar músicas, observações e título deste evento"
                         >
                           <Edit className="w-3.5 h-3.5" />
                           <span>Editar</span>
@@ -1414,7 +1469,7 @@ export default function AdminPage() {
                 <div>
                   <h3 className="text-lg font-bold text-white">Editar Celebração / Evento</h3>
                   <p className="text-xs text-slate-400">
-                    Altere o título, adicione, remova ou reordene as músicas deste evento
+                    Altere o título, observações gerais, adicione, remova ou reordene as músicas
                   </p>
                 </div>
               </div>
@@ -1444,24 +1499,39 @@ export default function AdminPage() {
             )}
 
             {/* Modal Body */}
-            <div className="flex-1 overflow-y-auto space-y-5 pr-1">
-              {/* Event Title */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Título da Celebração <span className="text-amber-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
-                  placeholder="Nome do evento"
-                />
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {/* Event Title & General Notes */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Título da Celebração <span className="text-amber-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                    placeholder="Nome do evento"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Observações Gerais da Celebração
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="Orientações e avisos para a equipe..."
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition resize-none"
+                  />
+                </div>
               </div>
 
               {/* Grid 2 Columns: Songs in Event vs Catalog Search */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-2">
                 {/* Column 1: Current Event Songs */}
                 <div className="md:col-span-7 space-y-3">
                   <div className="flex items-center justify-between">
@@ -1474,82 +1544,122 @@ export default function AdminPage() {
                     <span className="text-[11px] text-slate-400">Use as setas para reordenar</span>
                   </div>
 
-                  <div className="max-h-72 overflow-y-auto space-y-2 border border-slate-800 rounded-xl p-2.5 bg-slate-950/60">
+                  <div className="max-h-80 overflow-y-auto space-y-2.5 border border-slate-800 rounded-xl p-2.5 bg-slate-950/60">
                     {editSongsList.length === 0 ? (
                       <div className="py-8 text-center text-xs text-slate-400">
                         Nenhuma música adicionada ao evento. Selecione músicas do catálogo ao lado!
                       </div>
                     ) : (
-                      editSongsList.map((item, index) => (
-                        <div
-                          key={item.songId}
-                          className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 hover:border-slate-700 flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="flex items-center gap-2.5 overflow-hidden">
-                            {/* Order Badge */}
-                            <span className="w-5 h-5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
-                              {index + 1}
-                            </span>
+                      editSongsList.map((item, index) => {
+                        const isCommentOpen = activeCommentSongId === item.songId;
+                        const hasNote = Boolean(item.notes && item.notes.trim());
 
-                            {/* Song Info */}
-                            <div className="truncate">
-                              <p className="font-semibold text-white truncate">{item.song?.title || 'Música'}</p>
-                              {item.song?.artist && (
-                                <p className="text-[10px] text-slate-400 truncate">{item.song.artist}</p>
-                              )}
+                        return (
+                          <div
+                            key={item.songId}
+                            className="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 hover:border-slate-700 space-y-2 text-xs transition"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2.5 overflow-hidden">
+                                {/* Order Badge */}
+                                <span className="w-5 h-5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  {index + 1}
+                                </span>
+
+                                {/* Song Info */}
+                                <div className="truncate">
+                                  <p className="font-semibold text-white truncate">{item.song?.title || 'Música'}</p>
+                                  {item.song?.artist && (
+                                    <p className="text-[10px] text-slate-400 truncate">{item.song.artist}</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Action Buttons for this item */}
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Toggle Comment Box */}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setActiveCommentSongId((prev) => (prev === item.songId ? null : item.songId))
+                                  }
+                                  className={`p-1.5 rounded-md border text-[10px] transition ${
+                                    hasNote
+                                      ? 'bg-amber-950 text-amber-300 border-amber-500/50'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                                  }`}
+                                  title={hasNote ? `Comentário: "${item.notes}"` : 'Adicionar comentário para esta música'}
+                                >
+                                  <MessageSquare className="w-3 h-3" />
+                                </button>
+
+                                {/* Toggle selection status */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSelectInEdit(index)}
+                                  className={`p-1.5 rounded-md border text-[10px] transition ${
+                                    item.selected
+                                      ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40 font-bold'
+                                      : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
+                                  }`}
+                                  title={item.selected ? 'Marcada como escolhida' : 'Marcar como escolhida'}
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+
+                                {/* Move Up */}
+                                <button
+                                  type="button"
+                                  disabled={index === 0}
+                                  onClick={() => handleMoveSongUpInEdit(index)}
+                                  className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
+                                  title="Subir posição"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+
+                                {/* Move Down */}
+                                <button
+                                  type="button"
+                                  disabled={index === editSongsList.length - 1}
+                                  onClick={() => handleMoveSongDownInEdit(index)}
+                                  className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
+                                  title="Descer posição"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+
+                                {/* Remove from event */}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSongFromEditEvent(item.songId)}
+                                  className="p-1.5 rounded-md bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 transition"
+                                  title="Remover deste evento"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
+
+                            {/* Collapsible/Active Comment Textarea */}
+                            {(isCommentOpen || hasNote) && (
+                              <div className="pt-1.5 border-t border-slate-800/80">
+                                <div className="flex items-center gap-1.5 text-[10px] text-amber-400 mb-1">
+                                  <MessageSquare className="w-3 h-3" />
+                                  <span>Comentário Litúrgico / Instrução da Música:</span>
+                                </div>
+                                <input
+                                  type="text"
+                                  value={item.notes || ''}
+                                  onChange={(e) => handleSongNoteChangeInEdit(item.songId, e.target.value)}
+                                  placeholder="Ex: Entrar suave no violão, repetir refrão 2x..."
+                                  className="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                />
+                              </div>
+                            )}
                           </div>
-
-                          {/* Action Buttons for this item */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            {/* Toggle selection status */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSelectInEdit(index)}
-                              className={`p-1.5 rounded-md border text-[10px] transition ${
-                                item.selected
-                                  ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40 font-bold'
-                                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200'
-                              }`}
-                              title={item.selected ? 'Marcada como escolhida' : 'Marcar como escolhida'}
-                            >
-                              <Check className="w-3 h-3" />
-                            </button>
-
-                            {/* Move Up */}
-                            <button
-                              type="button"
-                              disabled={index === 0}
-                              onClick={() => handleMoveSongUpInEdit(index)}
-                              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
-                              title="Subir posição"
-                            >
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Move Down */}
-                            <button
-                              type="button"
-                              disabled={index === editSongsList.length - 1}
-                              onClick={() => handleMoveSongDownInEdit(index)}
-                              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition"
-                              title="Descer posição"
-                            >
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-
-                            {/* Remove from event */}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveSongFromEditEvent(item.songId)}
-                              className="p-1.5 rounded-md bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 transition"
-                              title="Remover deste evento"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1574,7 +1684,7 @@ export default function AdminPage() {
                     />
                   </div>
 
-                  <div className="max-h-64 overflow-y-auto space-y-1.5 border border-slate-800 rounded-xl p-2 bg-slate-950/60">
+                  <div className="max-h-72 overflow-y-auto space-y-1.5 border border-slate-800 rounded-xl p-2 bg-slate-950/60">
                     {filteredSongsForEditCatalog.length === 0 ? (
                       <div className="py-6 text-center text-xs text-slate-500">Nenhuma música encontrada.</div>
                     ) : (

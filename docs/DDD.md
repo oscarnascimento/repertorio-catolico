@@ -17,10 +17,12 @@ O desafio central que o software resolve é a comunicação fluida e em tempo re
 | :--- | :--- |
 | **Acervo Geral (`Song`)** | Catálogo permanente de canções conhecidas pelo ministério, com título, ministério/artista e link de referência do YouTube. |
 | **Celebração / Evento (`Event`)** | Um momento litúrgico específico datado (ex: *"Adoração ao Santíssimo - 25/09"*, *"Missa da Misericórdia"*). |
-| **Música Sugerida (`EventSong`)** | Associação de uma música do acervo a uma celebração específica com estado de seleção e posição na sequência. |
+| **Observação Geral (`notes`)** | Orientações e avisos litúrgicos gerais registrados para toda a celebração, visíveis a toda a equipe. |
+| **Música Sugerida (`EventSong`)** | Associação de uma música do acervo a uma celebração específica com estado de seleção, posição na sequência e instrução musical. |
+| **Comentário Litúrgico da Música (`notes`)** | Instrução musical e litúrgica específica vinculada a uma canção (ex: dinâmicas, entradas, repetições de refrão, tom). |
 | **Ordem de Execução (`order`)** | A sequência cronológica exata em que as músicas deverão ser entoadas durante a celebração. |
 | **Música Marcada / Selecionada (`selected`)** | Estado que indica a confirmação pelo Diácono/Celebrante de que aquela canção fará parte do rito. |
-| **Diácono / Celebrante** | Usuário final com acesso ao link direto mobile para triagem e ordenação do repertório da celebração. |
+| **Diácono / Celebrante** | Usuário final com acesso ao link direto mobile para triagem, anotações e ordenação do repertório da celebração. |
 | **Administrador / Ministro de Louvor** | Usuário responsável por alimentar o acervo e estruturar novas celebrações. |
 
 ---
@@ -46,9 +48,9 @@ graph TD
 - **Operações:** Cadastro individual de canções, importação em lote via planilhas (`.xlsx`, `.xls`, `.csv`), consulta alfabética e pesquisa textual por título ou autor.
 
 ### 3.2. Contexto de Celebração e Execução (`Liturgical Celebration Context`)
-- **Responsabilidade:** Orquestrar celebrações, montagem de repertórios sugeridos, manutenção contínua e recepção de escolhas em tempo real.
+- **Responsabilidade:** Orquestrar celebrações, montagem de repertórios sugeridos, manutenção contínua, registro de orientações e recepção de escolhas em tempo real.
 - **Entidades:** `Event`, `EventSong`.
-- **Operações:** Criação de celebração com lista inicial, listagem e busca de eventos, alteração de título e músicas do evento (adição/remoção/reordenação), exclusão de evento, marcação/desmarcação e sincronização atômica em tempo real.
+- **Operações:** Criação de celebração com lista inicial, listagem e busca de eventos, alteração de título, observações gerais e músicas do evento (adição/remoção/reordenação/comentários), exclusão de evento, marcação/desmarcação e sincronização atômica em tempo real.
 
 ---
 
@@ -57,26 +59,28 @@ graph TD
 ### 4.1. Agregados e Raízes de Agregação (Aggregates & Roots)
 
 #### **Agregado `Event` (Raiz de Agregação)**
-Garante a consistência de uma celebração e a integridade da sua lista de músicas sugeridas.
+Garante a consistência de uma celebração e a integridade da sua lista de músicas sugeridas e anotações litúrgicas.
 
 ```text
 Event (Aggregate Root)
 │
 ├── id: UUID
 ├── title: String (Ex: "Adoração 25/09")
+├── notes: String? (Observações gerais da celebração)
 ├── createdAt: DateTime
 │
 └── songs: List<EventSong> (Entidades Filhas)
     ├── id: UUID
     ├── songId: UUID -> Referência para Song
     ├── selected: Boolean
-    └── order: Integer (0..N)
+    ├── order: Integer (0..N)
+    └── notes: String? (Comentário/instrução específica para a música)
 ```
 
 **Invariantes do Agregado `Event`:**
 1. Um evento não pode ter a mesma música duplicada (`@@unique([eventId, songId])`).
 2. A ordem de execução `order` deve ser um valor inteiro que reflita a posição sequencial na playlist.
-3. Atualizações de seleção, adição, remoção e ordenação em lote são executadas em transação atômica (`prisma.$transaction`).
+3. Atualizações de seleção, adição, remoção, comentários e ordenação em lote são executadas em transação atômica (`prisma.$transaction`).
 4. Ao excluir um evento, todos os registros filhos de `EventSong` são excluídos em cascata (`onDelete: Cascade`).
 
 #### **Agregado `Song` (Raiz de Agregação)**

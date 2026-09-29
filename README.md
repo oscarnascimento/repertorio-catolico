@@ -29,6 +29,8 @@ Desenvolvida com **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, **P
 
 - **Interface Mobile do Diácono (`/evento/[id]`):**
   - Experiência otimizada para smartphones (*touch-friendly*).
+  - **Observações Gerais da Celebração:** Caixa de texto posicionada acima das músicas para registrar orientações litúrgicas gerais, com salvamento automático (*auto-save*) em tempo real.
+  - **Comentários por Música:** Botão dedicado em cada canção (`+ Comentário` / `Comentário`) que abre um popup com salvamento automático na própria digitação, permitindo instruções específicas para os músicos (ex: dinâmica de entrada, repetições, tom).
   - Seleção/marcação de músicas com feedback visual imediato.
   - Ordenação personalizada da sequência de execução com botões `▲` (Subir) e `▼` (Descer).
   - Acesso direto ao vídeo de referência no YouTube.

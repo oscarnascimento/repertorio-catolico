@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/prepare-prisma.js && next dev",
-    "build": "node scripts/prepare-prisma.js && prisma generate && next build",
+    "dev": "node scripts/prepare-prisma.js && prisma db push && next dev",
+    "build": "node scripts/prepare-prisma.js && prisma generate && prisma db push && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "node scripts/prepare-prisma.js && prisma generate",
+    "postinstall": "node scripts/prepare-prisma.js && prisma generate && prisma db push",
     "db:push": "node scripts/prepare-prisma.js && prisma db push"
   },
   "dependencies": {
