@@ -1,4 +1,4 @@
-name: CI/CD Pipeline - Repertório Católico
+name: CI - Repertório Católico
 
 on:
   push:
@@ -38,25 +38,3 @@ jobs:
 
       - name: Typecheck TypeScript & Next.js Build
         run: npm run build
-
-  deploy-to-vercel:
-    name: Deploy to Vercel
-    needs: validate-and-build
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js 20.x
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Deploy to Vercel (Production)
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod'
