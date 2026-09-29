@@ -54,6 +54,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const { password } = body;
     const clientIp = getClientIp(request);
+    const isSecureCookie = new URL(request.url).protocol === 'https:';
 
     if (isLockedOut(clientIp)) {
       return NextResponse.json(
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
       name: ADMIN_COOKIE_NAME,
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: isSecureCookie,
       sameSite: 'lax',
       path: '/',
       maxAge: 7 * 24 * 60 * 60, // 7 days in seconds

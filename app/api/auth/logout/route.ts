@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { ADMIN_COOKIE_NAME } from '@/lib/auth';
 
-export async function POST() {
+export async function POST(request: Request) {
+  const isSecureCookie = new URL(request.url).protocol === 'https:';
+
   const response = NextResponse.json(
     { message: 'Sessão encerrada com sucesso.', success: true },
     { status: 200 }
@@ -11,7 +13,7 @@ export async function POST() {
     name: ADMIN_COOKIE_NAME,
     value: '',
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: isSecureCookie,
     sameSite: 'lax',
     path: '/',
     maxAge: 0,
@@ -21,6 +23,6 @@ export async function POST() {
   return response;
 }
 
-export async function GET() {
-  return POST();
+export async function GET(request: Request) {
+  return POST(request);
 }
